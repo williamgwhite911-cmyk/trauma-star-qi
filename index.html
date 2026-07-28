@@ -282,6 +282,8 @@ button.primary:hover { filter: brightness(1.07); }
           <button id="printbtn">Export PDF</button>
           <button id="resetbtn">New Review</button>
         </div>
+        <button class="primary" id="savenewbtn" style="background:var(--green);margin-top:10px">Save + New Chart</button>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center">Archives this review to the log, opens the PDF save dialog (choose your QI folder), then clears everything for the next chart.</div>
       </div>
 
       <div class="card">
@@ -1402,6 +1404,30 @@ document.getElementById('resetbtn').addEventListener('click', function () {
   if (!confirm('Clear this review and start a new one? Saved log entries are kept.')) return;
   localStorage.removeItem('tsqi');
   location.reload();
+});
+
+/* Save + New Chart: archive to the log, export the PDF (user picks the QI
+   folder in the save dialog; browsers remember it), then clear for the next chart. */
+document.getElementById('savenewbtn').addEventListener('click', function () {
+  var f = getFields();
+  if (!f.oca.trim()) {
+    alert('Enter the OCA number first — it is the key the archived chart is saved and logged under.');
+    document.getElementById('f_oca').focus();
+    return;
+  }
+  if (!state.analyzed) { checkHeader(); analyze(); }
+  saveToLog();
+  var oldTitle = document.title;
+  document.title = 'TSQI_' + f.oca.trim() + '_' + (f.date || new Date().toISOString().slice(0, 10));
+  var done = false;
+  window.addEventListener('afterprint', function () {
+    if (done) return;
+    done = true;
+    document.title = oldTitle;
+    localStorage.removeItem('tsqi');
+    location.reload();
+  }, { once: true });
+  window.print();
 });
 ['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
