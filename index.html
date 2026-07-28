@@ -359,6 +359,13 @@ button.primary:hover { filter: brightness(1.07); }
 </div>
 
 <script>
+/* Surfaces any script error visibly so a failure never looks like a dead button */
+window.addEventListener('error', function (e) {
+  var el = document.getElementById('scoresub');
+  if (el) el.textContent = 'App error: ' + (e.message || 'script failed to load') + ' — try updating your browser, then reload this page.';
+});
+</script>
+<script>
 (function () {
 'use strict';
 
@@ -520,7 +527,7 @@ var CRITERIA = [
 
 /* Denial language */
 var DENIAL = [
-  { rx:/(?<!un)\bstable\b/gi, word:'"stable"',
+  { rx:/\bstable\b/gi, word:'"stable"',
     fix:'Write: "Vital signs and MAP stabilizing with ongoing infusion titrated to maintain MAP 65 or greater. Patient remains at high risk of deterioration without continuous critical care monitoring."' },
   { rx:/\broutine\b/gi, word:'"routine"',
     fix:'Describe the specific monitoring and management performed instead of calling anything routine.' },
