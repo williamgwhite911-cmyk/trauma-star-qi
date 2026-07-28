@@ -241,6 +241,10 @@ button.primary:hover { filter: brightness(1.07); }
           <div><label>Flight Paramedic</label><input type="text" id="f_medic" placeholder="Name, Paramedic"></div>
         </div>
         <div class="row2">
+          <div><label>Pilot</label><input type="text" id="f_pilot" placeholder="Name, Pilot in Command"></div>
+          <div></div>
+        </div>
+        <div class="row2">
           <div><label>Pick-up Location</label><input type="text" id="f_pickup" placeholder="Scene / sending facility"></div>
           <div><label>Drop-off Location</label><input type="text" id="f_dropoff" placeholder="Receiving facility"></div>
         </div>
@@ -343,6 +347,12 @@ button.primary:hover { filter: brightness(1.07); }
         <div class="meter"><div id="meterbar" style="width:0%"></div></div>
         <div class="pillrow" id="pills"></div>
         <div class="legend noprint">Click any item to cycle: Pass &rarr; Missing &rarr; N/A. Amber items need reviewer judgment.</div>
+      </div>
+      <div class="card" id="summarycard" style="display:none">
+        <h2>Call Summary &amp; Reviewer Assessment</h2>
+        <div id="summarytext"></div>
+        <label style="margin-top:12px">Reviewer Comments (optional)</label>
+        <textarea id="f_comments" style="min-height:70px" placeholder="Additional QI reviewer notes for this call..."></textarea>
       </div>
       <div class="card" id="langcard" style="display:none">
         <h2>Language Audit &mdash; Words That Get Claims Denied</h2>
@@ -727,6 +737,65 @@ function render() {
     rf.innerHTML = '<div class="okflag">✓ No risk management triggers detected. No high-acuity procedures or possible-harm indicators found in the documentation.</div>';
   }
 
+  /* call summary: what happened, what went well, room to improve */
+  (function () {
+    var f = getFields();
+    var tt = computeTimes();
+    var sc = document.getElementById('summarycard');
+    sc.style.display = 'block';
+    var missionDesc = (state.mission === 'scene' ? 'Scene call' : 'Interfacility transport') +
+      (state.mode === 'air' ? (f.aircraft ? ' aboard ' + f.aircraft : ' by air') : ' by ground CCT');
+    var line = missionDesc;
+    if (f.date) line += ' on ' + f.date;
+    if (f.oca) line += ' (OCA ' + f.oca + ')';
+    if (f.pickup || f.dropoff) line += ', ' + (f.pickup || 'origin') + ' to ' + (f.dropoff || 'destination');
+    if (f.cc) line += ', for ' + f.cc;
+    line += '.';
+    var crew = [];
+    if (f.pilot) crew.push('Pilot ' + f.pilot);
+    if (f.rn) crew.push('RN ' + f.rn);
+    if (f.medic) crew.push('Medic ' + f.medic);
+    if (crew.length) line += ' Crew: ' + crew.join(', ') + '.';
+    if (tt.response !== null) line += ' Response time ' + tt.response + ' min.';
+    if (tt.ground !== null) line += ' ' + (state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min.';
+    line += ' Documentation score ' + s.score + '/100 (' + g[0] + ').';
+
+    var well = [];
+    CRITERIA.filter(function (c) { return state.results[c.id] && state.results[c.id].status === 'pass'; })
+      .sort(function (a, b) { return b.w - a.w; }).slice(0, 8)
+      .forEach(function (c) { well.push(c.title); });
+    if (!state.langHits.length) well.push('Chart is free of denial language ("stable," "routine," "without incident")');
+    var limit2 = state.mission === 'scene' ? 10 : 20;
+    if (tt.response !== null && tt.response <= 10) well.push('Response time within the 10-minute standard');
+    if (tt.ground !== null && tt.ground <= limit2) well.push((state.mission === 'scene' ? 'Scene time' : 'Land-to-takeoff time') + ' within the ' + limit2 + '-minute standard');
+
+    var improve = [];
+    CRITERIA.forEach(function (c) {
+      var r = state.results[c.id];
+      if (!r) return;
+      if (r.status === 'fail') improve.push('Document ' + c.title.toLowerCase() + ' — ' + c.why.split('.')[0].toLowerCase() + '.');
+      else if (r.status === 'review') improve.push('Verify ' + c.title.toLowerCase() + ' is fully charted.');
+    });
+    if (state.langHits.length) improve.push('Replace denial language (' + state.langHits.map(function (h) { return h.word; }).join(', ') + ') with active-management wording.');
+    if (tt.response !== null && tt.response > 10) improve.push('Response time ' + tt.response + ' min exceeded the 10-minute standard — document the reason for the delay.');
+    if (tt.ground !== null && tt.ground > limit2) improve.push((state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min exceeded the ' + limit2 + '-minute standard — document what extended the ground interval.');
+    if (!f.icd.trim() || !f.hcpcs || !f.miles.trim()) improve.push('Complete the billing coding (ICD-10, transport code, loaded miles) before the claim is submitted.');
+    state.riskHits.filter(function (h) { return h.cat === 'harm'; }).forEach(function (h) {
+      improve.push('Risk management referral: ' + h.label.toLowerCase() + '.');
+    });
+
+    var html = '<div style="font-size:13.5px;margin-bottom:10px">' + esc(line) + '</div>';
+    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--green);margin-bottom:4px">What the crew did well</div>';
+    html += well.length
+      ? well.map(function (w) { return '<div style="font-size:13px;margin-bottom:3px"><b style="color:var(--green)">✓</b> ' + esc(w) + '</div>'; }).join('')
+      : '<div style="font-size:13px;color:var(--muted)">No documented elements detected yet.</div>';
+    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--red);margin:10px 0 4px">Room to improve</div>';
+    html += improve.length
+      ? improve.map(function (w) { return '<div style="font-size:13px;margin-bottom:3px"><b style="color:var(--red)">→</b> ' + esc(w) + '</div>'; }).join('')
+      : '<div style="font-size:13px;color:var(--green);font-weight:600">Nothing outstanding — this chart makes its own case.</div>';
+    document.getElementById('summarytext').innerHTML = html;
+  })();
+
   /* criteria by section */
   var sections = [];
   CRITERIA.forEach(function (c) { if (sections.indexOf(c.sec) < 0) sections.push(c.sec); });
@@ -782,8 +851,7 @@ function renderPrintHeader(s, g) {
     '<td><b>Aircraft</b>' + esc(f.aircraft || '—') + '</td>' +
     '<td><b>Mission</b>' + (state.mission === 'scene' ? 'Scene Call' : 'Interfacility') + ' / ' + (state.mode === 'air' ? 'Air' : 'Ground CCT') + '</td></tr><tr>' +
     '<td><b>Chief Complaint</b>' + esc(f.cc || '—') + '</td>' +
-    '<td><b>Flight Nurse</b>' + esc(f.rn || '—') + '</td>' +
-    '<td><b>Flight Paramedic</b>' + esc(f.medic || '—') + '</td>' +
+    '<td><b>Crew</b>' + esc('Pilot: ' + (f.pilot || '—') + ' · RN: ' + (f.rn || '—') + ' · Medic: ' + (f.medic || '—')) + '</td>' +
     '<td><b>Route</b>' + esc((f.pickup || '—') + ' → ' + (f.dropoff || '—')) + '</td>' +
     '</tr><tr>' +
     '<td><b>Primary ICD-10</b>' + esc(f.icd ? f.icd.toUpperCase() + (icdDesc(f.icd.trim()) ? ' — ' + icdDesc(f.icd.trim()) : '') : '—') + '</td>' +
@@ -810,6 +878,8 @@ function getFields() {
     cc: document.getElementById('f_cc').value,
     rn: document.getElementById('f_rn').value,
     medic: document.getElementById('f_medic').value,
+    pilot: document.getElementById('f_pilot').value,
+    comments: document.getElementById('f_comments').value,
     pickup: document.getElementById('f_pickup').value,
     dropoff: document.getElementById('f_dropoff').value,
     icd: document.getElementById('f_icd').value,
@@ -1028,6 +1098,7 @@ function checkHeader() {
   if (!f.cc) missing.push('chief complaint');
   if (!f.rn) missing.push('flight nurse');
   if (!f.medic) missing.push('flight paramedic');
+  if (!f.pilot) missing.push('pilot');
   if (!f.pickup) missing.push('pick-up');
   if (!f.dropoff) missing.push('drop-off');
   document.getElementById('headerwarn').textContent =
@@ -1295,7 +1366,7 @@ document.getElementById('resetbtn').addEventListener('click', function () {
   localStorage.removeItem('tsqi');
   location.reload();
 });
-['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pickup','f_dropoff'].forEach(function (id) {
+['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
 });
 ['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
