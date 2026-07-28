@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trauma Star Documentation QI</title>
+<style>
+:root {
+  --navy: #14263c;
+  --navy-2: #1d3554;
+  --paper: #f5f6f8;
+  --card: #ffffff;
+  --ink: #16202c;
+  --ink-2: #4c5a6b;
+  --muted: #8a94a1;
+  --line: #dde2e9;
+  --blue: #2a78d6;
+  --green: #0e8a3e;
+  --green-bg: #e8f5ec;
+  --red: #c92f2f;
+  --red-bg: #fbeaea;
+  --amber: #b97a00;
+  --amber-bg: #fdf3e0;
+  --gray-bg: #eef0f3;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header.top {
+  background: linear-gradient(105deg, var(--navy) 0%, var(--navy-2) 70%, #24466e 100%);
+  color: #fff;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+header.top .htext { flex: 1; min-width: 0; }
+header.top h1 { font-size: 20px; font-weight: 700; }
+header.top .sub { font-size: 12.5px; color: #b9c4d3; margin-top: 2px; }
+.heli { flex-shrink: 0; height: 74px; display: flex; align-items: center; }
+.heli img { height: 74px; border-radius: 8px; display: block; object-fit: cover; max-width: 220px; }
+.heli svg { height: 64px; width: auto; display: block; }
+@media (max-width: 480px) { .heli { display: none; } }
+.wrap { max-width: 1150px; margin: 0 auto; padding: 20px; }
+.grid { display: grid; grid-template-columns: 400px 1fr; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.card h2 { font-size: 15px; font-weight: 700; margin-bottom: 10px; color: var(--navy); }
+label { display: block; font-size: 11.5px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.05em; margin: 10px 0 3px; }
+input[type=text], input[type=date], select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+  color: var(--ink);
+}
+textarea { min-height: 220px; resize: vertical; font-size: 13.5px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.tg {
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+  user-select: none;
+}
+.tg.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+button.primary {
+  background: var(--blue);
+  border: none;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  padding: 11px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 14px;
+}
+button.primary:hover { filter: brightness(1.07); }
+.btnrow { display: flex; gap: 10px; margin-top: 10px; }
+.btnrow button {
+  flex: 1;
+  background: #fff;
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.scorebox { text-align: center; padding: 20px 16px; }
+.scorenum { font-size: 54px; font-weight: 800; line-height: 1; }
+.scorelabel { font-size: 14px; font-weight: 700; margin-top: 6px; }
+.scoresub { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.score-good { color: var(--green); }
+.score-warn { color: var(--amber); }
+.score-bad { color: var(--red); }
+.meter { height: 10px; border-radius: 6px; background: var(--gray-bg); margin-top: 14px; overflow: hidden; }
+.meter > div { height: 100%; border-radius: 6px; transition: width 0.3s; }
+.sec { margin-bottom: 4px; }
+.sec h3 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 18px 0 8px;
+}
+.crit {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.crit .head { display: flex; align-items: flex-start; gap: 10px; }
+.crit .mark { font-size: 17px; font-weight: 800; width: 22px; text-align: center; flex-shrink: 0; line-height: 1.3; }
+.crit.pass { border-left: 4px solid var(--green); }
+.crit.pass .mark { color: var(--green); }
+.crit.fail { border-left: 4px solid var(--red); background: var(--red-bg); }
+.crit.fail .mark { color: var(--red); }
+.crit.na { opacity: 0.55; border-left: 4px solid var(--muted); }
+.crit.review { border-left: 4px solid var(--amber); background: var(--amber-bg); }
+.crit.review .mark { color: var(--amber); }
+.crit .title { font-weight: 600; font-size: 14px; }
+.crit .req { font-size: 12.5px; color: var(--ink-2); margin-top: 1px; }
+.crit .found {
+  font-size: 12px;
+  color: var(--green);
+  background: var(--green-bg);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 6px;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.crit .why {
+  font-size: 12.5px;
+  color: #7c1d1d;
+  background: #fff;
+  border: 1px solid #eec9c9;
+  border-radius: 6px;
+  padding: 7px 9px;
+  margin-top: 7px;
+}
+.crit .why b { color: var(--red); }
+.crit .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.flag {
+  border: 1px solid #eec9c9;
+  background: var(--red-bg);
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.flag b { color: var(--red); }
+.flag .fix { color: var(--ink-2); font-size: 12.5px; margin-top: 3px; }
+.okflag {
+  border: 1px solid #bfe3cb;
+  background: var(--green-bg);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 600;
+}
+.pillrow { display: flex; gap: 14px; justify-content: center; margin-top: 12px; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap; }
+.pillrow b { font-size: 15px; }
+.legend { font-size: 11.5px; color: var(--muted); margin-top: 10px; text-align: center; }
+.headerwarn { font-size: 12.5px; color: var(--amber); margin-top: 8px; font-weight: 600; }
+@media print {
+  body { background: #fff; }
+  header.top { background: #fff; color: #000; border-bottom: 3px solid #000; padding: 8px 0; }
+  header.top .sub { color: #333; }
+  .grid { grid-template-columns: 1fr; }
+  .noprint { display: none !important; }
+  .card { border: none; padding: 4px 0; margin-bottom: 6px; }
+  .crit { break-inside: avoid; cursor: default; margin-bottom: 4px; padding: 6px 8px; }
+  .crit.fail { background: #fff; }
+  .printheader { display: block !important; font-size: 13px; margin-bottom: 10px; }
+  .printheader table { border-collapse: collapse; width: 100%; }
+  .printheader td { border: 1px solid #bbb; padding: 4px 8px; font-size: 12px; }
+  .printheader td b { font-size: 10px; text-transform: uppercase; color: #555; display: block; }
+}
+.printheader { display: none; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="htext">
+    <h1>Trauma Star Documentation QI</h1>
+    <div class="sub">Monroe County Fire Rescue &middot; Critical Care Flight Chart Audit &middot; Medical Necessity + CAMTS + Reimbursement Readiness</div>
+  </div>
+  <div class="heli">
+    <!-- Drop a photo named helicopter.jpg in this folder and it will appear here automatically. -->
+    <img src="helicopter.jpg" alt="Trauma Star AW139" style="display:none" onload="this.style.display='block'">
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="printheader" id="printheader"></div>
+  <div class="grid">
+    <div class="noprint">
+      <div class="card">
+        <h2>Flight Information</h2>
+        <div class="row2">
+          <div><label>Flight Date</label><input type="date" id="f_date"></div>
+          <div><label>OCA Number</label><input type="text" id="f_oca" placeholder="OCA #"></div>
+        </div>
+        <div class="row2">
+          <div><label>Aircraft</label>
+            <select id="f_aircraft">
+              <option value="">Select...</option>
+              <option>Trauma Star North</option>
+              <option>Trauma Star South</option>
+            </select>
+          </div>
+          <div><label>Chief Complaint</label><input type="text" id="f_cc" placeholder="e.g., Suspected LVO stroke"></div>
+        </div>
+        <div class="row2">
+          <div><label>Flight Nurse</label><input type="text" id="f_rn" placeholder="Name, RN"></div>
+          <div><label>Flight Paramedic</label><input type="text" id="f_medic" placeholder="Name, Paramedic"></div>
+        </div>
+        <div class="row2">
+          <div><label>Pick-up Location</label><input type="text" id="f_pickup" placeholder="Scene / sending facility"></div>
+          <div><label>Drop-off Location</label><input type="text" id="f_dropoff" placeholder="Receiving facility"></div>
+        </div>
+        <div id="headerwarn" class="headerwarn"></div>
+
+        <label style="margin-top:16px">Mission Profile</label>
+        <div class="toggles">
+          <span class="tg" id="tg_scene" data-group="mission" data-val="scene">Scene Call</span>
+          <span class="tg on" id="tg_ift" data-group="mission" data-val="ift">Interfacility (IFT)</span>
+        </div>
+        <div class="toggles">
+          <span class="tg on" id="tg_air" data-group="mode" data-val="air">Air Transport</span>
+          <span class="tg" id="tg_ground" data-group="mode" data-val="ground">Ground CCT</span>
+        </div>
+        <div class="toggles">
+          <span class="tg" id="tg_vent" data-group="vent" data-val="vent">Ventilated Patient</span>
+          <span class="tg" id="tg_sed" data-group="sed" data-val="sed">Sedated / Intubated / Agitated</span>
+        </div>
+
+        <label style="margin-top:16px">Source Documents &amp; Photos (up to 30)</label>
+        <input type="file" id="fileinput" multiple accept=".pdf,image/*" style="display:none">
+        <button type="button" id="uploadbtn" style="width:100%;background:#fff;border:1px dashed var(--blue);color:var(--blue);font:inherit;font-weight:600;padding:10px;border-radius:8px;cursor:pointer">+ Upload PDFs &amp; Photos</button>
+        <div id="filelist" style="margin-top:8px"></div>
+        <div id="filestatus" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+
+        <label style="margin-top:16px">Chart Narrative / Documentation</label>
+        <textarea id="chart" placeholder="Paste the chart narrative here, or upload the chart PDF above and its text will be extracted into this box automatically. Then press Analyze. The tool scans for each required element, flags denial language, and scores the chart 0-100. Click any item to override the automatic result."></textarea>
+        <button class="primary" id="analyze">Analyze Documentation</button>
+        <div class="btnrow">
+          <button id="savebtn">Save to Log</button>
+          <button id="printbtn">Export PDF</button>
+          <button id="resetbtn">New Review</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Billing &mdash; ICD-10 &amp; Transport Codes</h2>
+        <div class="row2">
+          <div>
+            <label>Primary ICD-10</label>
+            <input type="text" id="f_icd" list="icdlist" placeholder="e.g., A41.9" autocapitalize="characters">
+          </div>
+          <div>
+            <label>Secondary ICD-10 (comma separated)</label>
+            <input type="text" id="f_icd2" list="icdlist" placeholder="e.g., J96.01, R57.0">
+          </div>
+        </div>
+        <datalist id="icdlist">
+          <option value="A41.9">Sepsis, unspecified organism</option>
+          <option value="R65.21">Severe sepsis with septic shock</option>
+          <option value="I21.3">STEMI, unspecified site</option>
+          <option value="I63.9">Cerebral infarction (ischemic stroke), unspecified</option>
+          <option value="I61.9">Intracerebral hemorrhage, unspecified</option>
+          <option value="I71.00">Aortic dissection, unspecified site</option>
+          <option value="I46.9">Cardiac arrest, cause unspecified</option>
+          <option value="R57.0">Cardiogenic shock</option>
+          <option value="R57.1">Hypovolemic shock</option>
+          <option value="J96.01">Acute respiratory failure with hypoxia</option>
+          <option value="J96.02">Acute respiratory failure with hypercapnia</option>
+          <option value="S06.9X9A">Intracranial injury (TBI), unspecified, initial</option>
+          <option value="T07.XXXA">Multiple injuries, unspecified, initial</option>
+          <option value="S27.0XXA">Traumatic pneumothorax, initial</option>
+          <option value="K92.2">Gastrointestinal hemorrhage, unspecified</option>
+          <option value="T30.0">Burn, unspecified body region</option>
+          <option value="O72.1">Postpartum hemorrhage</option>
+          <option value="G40.901">Epilepsy with status epilepticus</option>
+        </datalist>
+        <div class="row2">
+          <div>
+            <label>Transport Code (HCPCS)</label>
+            <select id="f_hcpcs">
+              <option value="">Select...</option>
+              <option value="A0431">A0431 &mdash; Rotary wing air ambulance</option>
+              <option value="A0430">A0430 &mdash; Fixed wing air ambulance</option>
+              <option value="A0434">A0434 &mdash; Specialty Care Transport (ground SCT)</option>
+              <option value="A0433">A0433 &mdash; ALS2 (ground)</option>
+              <option value="A0427">A0427 &mdash; ALS1 emergency (ground)</option>
+              <option value="A0429">A0429 &mdash; BLS emergency (ground)</option>
+            </select>
+          </div>
+          <div>
+            <label>Loaded Miles</label>
+            <input type="text" id="f_miles" inputmode="decimal" placeholder="Patient-loaded statute miles">
+          </div>
+        </div>
+        <div id="billchecks" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Review Log</h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Reviews are saved on this device, keyed by OCA number. Click a review to reload it; Export PDF creates a file you can email.</div>
+        <div id="logpanel"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card scorebox">
+        <div class="scorenum" id="score">--</div>
+        <div class="scorelabel" id="scorelabel">Awaiting analysis</div>
+        <div class="scoresub" id="scoresub">Enter flight information and paste the chart, then press Analyze.</div>
+        <div class="meter"><div id="meterbar" style="width:0%"></div></div>
+        <div class="pillrow" id="pills"></div>
+        <div class="legend noprint">Click any item to cycle: Pass &rarr; Missing &rarr; N/A. Amber items need reviewer judgment.</div>
+      </div>
+      <div class="card" id="langcard" style="display:none">
+        <h2>Language Audit &mdash; Words That Get Claims Denied</h2>
+        <div id="langflags"></div>
+      </div>
+      <div id="results"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ---------------- Criteria definitions ----------------
+   why = the reason this element matters, from the EMS Director's briefing.
+   applies: mission scene|ift|all, mode air|ground|all, vent, sed */
+var CRITERIA = [
+  /* --- Transport request & medical necessity --- */
+  { id:'agency', sec:'Transport Request & Medical Necessity', w:3,
+    title:'Requesting Agency',
+    req:'The organization that initiated the request for transport.',
+    why:'The payer must see who initiated the request. Without a documented requesting agency, the reviewer cannot establish that the transport originated from a legitimate medical request, and the claim starts from a position of doubt.',
+    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(sending|referring)\s+(agency|facility)/i, /dispatch(ed)?\s+(by|per|from)/i] },
+  { id:'provider', sec:'Transport Request & Medical Necessity', w:3,
+    title:'Requesting Provider (name + licensure)',
+    req:'Full name and licensure (MD, DO, PA, NP, Paramedic, EMT) of the provider who requested transport.',
+    why:'The requester’s name and credentials establish that a qualified provider judged the transport necessary. On an IFT the physician’s order is what qualifies the claim for the critical care level. A chart without it reads as an unrequested flight.',
+    rx:[/request(ing|ed)?\s+(provider|physician)/i, /\b(dr|doctor)\.?\s+[a-z]+/i, /,\s*(md|do|pa|np|arnp)\b/i] },
+  { id:'services', sec:'Transport Request & Medical Necessity', w:5,
+    title:'Clinical Services Not Available at Pickup Location',
+    req:'Specify services, treatments, or interventions the patient required that were not available at the pickup location.',
+    why:'This is the core of medical necessity. If the chart does not state what the patient needed that the current location could not provide, the reviewer concludes the patient could have stayed, and denies the claim.',
+    rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i] },
+  { id:'condition', sec:'Transport Request & Medical Necessity', w:3,
+    title:'Patient’s Summarized Condition',
+    req:'The diagnosis (IFT) or working diagnosis (scene call) as reported to the crew.',
+    why:'The reviewer was not on the aircraft. The summarized condition is the frame for every other element of the chart. Without it, nothing else in the record has clinical context.',
+    rx:[/diagnos[ie]s/i, /presents?\s+with/i, /found\s+(to\s+be|with)/i, /reported\s+(to\s+have|that)/i, /working\s+dx/i, /\bdx\b/i] },
+  { id:'timedep', sec:'Transport Request & Medical Necessity', w:5,
+    title:'Time-Dependent Illness Identified',
+    req:'Conditions requiring prompt intervention: stroke, STEMI, trauma with internal bleeding, severe respiratory distress.',
+    why:'Time savings only matter if the patient is time-dependent. This element is what converts a faster transport into a medically necessary one. Without it, "air was faster" is not a payable justification.',
+    rx:[/time.?(dependent|sensitive)/i, /\bstroke\b/i, /\blvo\b/i, /\bstemi\b/i, /trauma\s+alert/i, /internal\s+(bleed|hemorrhage)/i, /respiratory\s+(distress|failure)/i, /intervention\s+window/i, /\bsepsis\b/i] },
+  { id:'hpi', sec:'Transport Request & Medical Necessity', w:5,
+    title:'HPI Summary',
+    req:'Primary symptoms, pertinent history, events leading to illness/injury, and all interventions performed before arrival.',
+    why:'The HPI is the narrative that ties every element together for a reviewer who never met the patient. A chart without a focused HPI forces the payer to guess why transport was required, and payers do not guess in your favor.',
+    rx:[/\bhpi\b/i, /history\s+of\s+present\s+illness/i, /(prior\s+to\s+(our\s+)?arrival|pta\b)/i, /events?\s+leading/i] },
+
+  /* --- Mode justification --- */
+  { id:'mode', sec:'Mode of Transport Justification', w:5,
+    title:'Mode of Transport Explained',
+    req:'Why rotor, fixed-wing, or critical care ground was chosen for this patient: severity, personnel needs, distance, logistics.',
+    why:'The payer requires the record to state why this mode was required for this specific patient. A chart that never explains the mode choice is read as a convenience flight and denied.',
+    rx:[/mode\s+of\s+transport/i, /(rotor|helicopter|air\s+transport|fixed.?wing)\s+.{0,40}(chosen|selected|required|indicated|necessary)/i, /required\s+(air|rotor|helicopter)/i] },
+  { id:'groundtime', sec:'Mode of Transport Justification', w:5,
+    title:'Ground Transport Time in Minutes',
+    req:'Ground time in minutes per Google Maps, plus factors that would extend it (weather, traffic, road conditions).',
+    why:'"Ground transport time approximately 92 minutes versus 24 minutes by air" is objective and reviewable. Without the number in minutes, the air-versus-ground comparison cannot be evaluated and the mode justification fails.',
+    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i] },
+  { id:'airconsider', sec:'Mode of Transport Justification', w:3, mode:'air',
+    title:'Air-over-Ground Considerations',
+    req:'Factors guiding air over ground: patient stability, limited community resources, no ALS available, geographic constraints, crew capabilities.',
+    why:'If air is chosen, the record must show the factors that made ground inadequate: resources, geography, or crew capability. This is the difference between a justified air transport and one that could have gone by ground BLS.',
+    rx:[/no\s+als\s+(ambulance|unit)/i, /first\s+responder\s+only/i, /ground\s+ems\s+limitation/i, /crew\s+capabilit/i, /(geograph|access)\s+constraint/i, /(versus|vs\.?)\s+\d+\s*min/i, /by\s+air\b/i] },
+  { id:'groundreason', sec:'Mode of Transport Justification', w:3, mode:'ground',
+    title:'Ground-instead-of-Air Reasons',
+    req:'Why ground was used instead of air: weather preventing safe flight, distance, patient stability, crew capabilities.',
+    why:'When ground is chosen, the same rule applies in reverse. The record must state why flight was not used, or the level of service billed cannot be supported.',
+    rx:[/weather\s+(preclud|prevent)/i, /unable\s+to\s+fly/i, /short\s+distance/i, /ground\s+(chosen|selected|utilized)/i] },
+
+  /* --- Destination --- */
+  { id:'destination', sec:'Destination', w:5,
+    title:'Transport Destination + Capabilities',
+    req:'The receiving facility and which of its capabilities meet this patient’s needs.',
+    why:'Naming the destination is not enough. The chart must connect the facility’s capability (trauma center, neurosurgery, cath lab) to this patient’s need. That connection is direct evidence the destination was medically required.',
+    rx:[/transport(ed|ing)?\s+to/i, /receiving\s+(facility|hospital)/i, /destination/i, /(trauma\s+center|comprehensive\s+stroke|cath\s+lab|neurosurg|level\s+[i1v]+)/i] },
+  { id:'bypass', sec:'Destination', w:5, mission:'scene',
+    title:'Bypassed Facilities Explanation (Scene Calls)',
+    req:'If a closer facility was bypassed: divert status, lacked specialty services, would not accept, unable to land, or patient advised of mileage responsibility.',
+    why:'On a scene call the crew chooses the destination, so the crew must justify it. Flying past a closer facility without a documented reason is one of the most common causes of denial. This applies to scene calls only, never IFTs.',
+    rx:[/bypass/i, /closest\s+(appropriate\s+)?facility/i, /on\s+divert/i, /would\s+not\s+accept/i, /unable\s+to\s+(land|fly)/i] },
+  { id:'sendaccept', sec:'Destination', w:5, mission:'ift',
+    title:'Sending + Accepting Facility and Providers (IFT)',
+    req:'Sending facility and provider, accepting facility and accepting provider, and the receiving capability the sending facility lacks.',
+    why:'On an IFT the physician-to-physician agreement is the destination decision. Documenting sender, accepter, and the capability gap is what qualifies the claim. No bypass justification applies; the patient is already at a hospital that cannot provide the needed care.',
+    rx:[/accepting\s+(physician|provider|md|facility)/i, /sending\s+(physician|provider|facility)/i, /transfer(red)?\s+(to|from)/i, /physician.to.physician/i] },
+
+  /* --- Clinical record --- */
+  { id:'meds', sec:'Clinical Record', w:3,
+    title:'Medications / Infusions Prior to Assessment (Page 7)',
+    req:'All current infusions and medications documented in the Medication/Infusions Prior to Assessment section.',
+    why:'The infusions running before your assessment are part of the proof that the patient required care beyond paramedic scope. They also close the loop between the sending facility’s treatment and yours.',
+    rx:[/page\s*7/i, /prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i] },
+  { id:'labs', sec:'Clinical Record', w:3,
+    title:'Labs and Imaging Results (Page 6)',
+    req:'Diagnostic results documented, including results that are pending or unknown.',
+    why:'Labs and imaging are the objective backbone of the working diagnosis. "Pending" and "unknown" are acceptable entries; a blank is not. A critical care team analyzes labs, imaging, and findings to build the real case for transport.',
+    rx:[/page\s*6/i, /\blabs?\b/i, /imaging/i, /\bct\b/i, /x.?ray/i, /\bmri\b/i, /lactate|troponin|wbc|hgb|hemoglobin|inr|creatinine/i, /pending|unknown/i] },
+  { id:'serial', sec:'Clinical Record', w:5,
+    title:'Serial Assessments and Vitals',
+    req:'Reassessments and vitals documented throughout patient contact, with times. One set is a snapshot, not a transport record.',
+    why:'Continuous monitoring for the entire patient contact time is the defining feature of critical care transport. A gap in documented assessments looks like a gap in care to a reviewer, and a single set of vitals means little without a trend.',
+    special:'times' },
+  { id:'interventions', sec:'Clinical Record', w:5,
+    title:'In-Flight Interventions, Titrations, and Response',
+    req:'Every medication, titration, ventilator change, and adjustment recorded with a time and the patient’s response.',
+    why:'This is the proof of critical care. A chart with no documented in-flight interventions or titrations tells the reviewer the patient could have gone by ground with a basic crew. "Norepinephrine titrated from 8 to 12 mcg/min at 1418 for MAP 58" documents an unstable patient; the same patient with nothing charted looks stable on paper.',
+    rx:[/titrat/i, /(administered|given)\s+at\s+\d/i, /(increased|decreased|adjusted|weaned|started|discontinued)\b/i, /\d+\s*(mcg|mg|units?)\/(kg\/)?(min|hr)/i] },
+
+  /* --- CAMTS & safety --- */
+  { id:'ptemp', sec:'CAMTS Required on Every Patient', w:3,
+    title:'Patient Temperature',
+    req:'A patient temperature on every patient, not only trauma patients.',
+    why:'CAMTS requirement. Fever changes the differential (sepsis, infection) and hypothermia changes outcomes. Hypothermia is an independent predictor of mortality in trauma and one part of the lethal triad. A trauma patient who cools in flight bleeds more; serial temperatures prove you monitored and managed it.',
+    rx:[/temp(erature)?\s*[:=]?\s*\d{2,3}(\.\d)?\s*(f|c|°)?/i, /afebrile/i, /(hypo|hyper)thermi/i, /\d{2}\.\d\s*°?[fc]\b/i] },
+  { id:'ctemp', sec:'CAMTS Required on Every Patient', w:3,
+    title:'Cabin Temperature',
+    req:'Aircraft cabin temperature documented on every transport.',
+    why:'CAMTS requirement. Cabin temperature changes quickly with altitude, airflow, ramp heat, and rotor wash. Documenting it shows the crew recognized the environment the patient was exposed to and controlled it, which matters most for neonates, burns, trauma, sepsis, post-ROSC, and patients who cannot shiver or report cold.',
+    rx:[/cabin\s+temp/i] },
+  { id:'glucose', sec:'CAMTS Required on Every Patient', w:3,
+    title:'Blood Glucose',
+    req:'A glucose on every patient, not only diabetics or altered patients. Recheck after treatment and on longer transports.',
+    why:'Hypoglycemia mimics stroke, intoxication, head injury, and psychiatric complaints. A stroke alert flown without a documented glucose is an incomplete record that is difficult to defend. The glucose is part of the workup supporting the working diagnosis you charted.',
+    rx:[/(glucose|bgl|blood\s+sugar|d.?stick|accu.?chek|dextro)\s*[:=]?\s*\d+/i, /glucose/i] },
+  { id:'altitude', sec:'CAMTS Required on Every Patient', w:3, mode:'air',
+    title:'Maximum Altitude',
+    req:'The maximum altitude reached during the transport.',
+    why:'As altitude increases, trapped gas expands and the partial pressure of oxygen falls, affecting pneumothorax, pneumocephalus, bowel gas, cuff pressures, and marginal oxygenation. The documented altitude ties in-flight changes (FiO2 increases, vented chest seal) to their cause and shows the crew considered altitude physiology.',
+    rx:[/max(imum)?\s+altitude/i, /altitude\s*[:=]?\s*\d/i, /\d{3,5}\s*(ft|feet)\b/i, /\bmsl\b/i] },
+
+  /* --- Communication --- */
+  { id:'radio', sec:'Communication', w:3,
+    title:'Radio Report to Receiving Hospital (time + content)',
+    req:'Every radio/communication report documented with the time and the content.',
+    why:'The radio report is the receiving team’s first clinical picture and proves the hospital activated the right resources. "Trauma alert called to receiving facility at 1432" is direct evidence the patient required capabilities only that destination could provide. A radio call that is not documented cannot be proven later.',
+    rx:[/radio\s+report/i, /report\s+(called|given|provided)/i, /notif(ied|ication)/i, /(trauma|stroke|stemi)\s+alert\s+(called|activated)/i, /entry\s+note/i] },
+
+  /* --- Ventilator --- */
+  { id:'vent1', sec:'Ventilator: Hamilton Monitoring Menus', w:4, vent:true,
+    title:'Menu 1: Pressures (Ppeak, Pplat, Pmean, PEEP, AutoPEEP)',
+    req:'Measured pressures at each assessment interval and after every vent change.',
+    why:'Pplat 30 or less is the evidence of lung-protective ventilation, the standard of care for transported ventilated patients. Rising Ppeak with unchanged Pplat localizes airway problems. Set mode and settings alone look like monitoring; serial measured pressures document critical care.',
+    rx:[/p\.?\s?peak/i, /p\.?\s?plat/i, /p\.?\s?mean/i, /\bpeep\b/i, /auto.?peep/i], min:3 },
+  { id:'vent2', sec:'Ventilator: Hamilton Monitoring Menus', w:4, vent:true,
+    title:'Menu 2: Volumes, Timing, Oxygenation (VTe, ExpMinVol, fTotal, I:E, FiO2)',
+    req:'Measured volumes and oxygenation with every change titrated and documented.',
+    why:'VTe charted against ideal body weight demonstrates lung-protective volumes. ExpMinVol ties to ETCO2 and rate/volume titrations. Every FiO2 change should carry the SpO2 that drove it. These are the numbers that separate active ventilator management from passive transport.',
+    rx:[/\bvte\b/i, /tidal\s+volume/i, /(exp)?min\s?vol/i, /minute\s+vol/i, /f\s?total/i, /i:e/i, /fio2/i], min:3 },
+  { id:'vent3', sec:'Ventilator: Hamilton Monitoring Menus', w:4, vent:true,
+    title:'Menu 3: Mechanics (Cstat, Rinsp, RCexp, P0.1)',
+    req:'Respiratory mechanics trended at assessment intervals.',
+    why:'Falling Cstat in flight is early objective evidence of deterioration (ARDS, edema, pneumothorax, mainstem migration). Rising Rinsp localizes airway or circuit problems and justifies suctioning or bronchodilators. Trending mechanics is how these problems are caught, and charting them proves you were watching.',
+    rx:[/c\s?stat/i, /compliance/i, /r\s?insp/i, /resistance/i, /rc\s?exp/i, /p\s?0\.1/i], min:2 },
+
+  /* --- Sedation & pain --- */
+  { id:'rass', sec:'Sedation & Pain', w:4, sed:true,
+    title:'Serial RASS Scores with Target',
+    req:'RASS at initial contact and serially; target RASS charted (typically -2 to 0); every sedation titration tied to a RASS score.',
+    why:'"RASS +2, fentanyl increased to 150 mcg/hr, RASS -1 on reassessment" justifies the drip and shows the reassessment loop. Sedation managed to a documented target is a hallmark critical care activity; sedation that is not documented cannot be shown to have been monitored.',
+    rx:[/rass\s*[-+]?\s*\d/i] },
+  { id:'pain', sec:'Sedation & Pain', w:3,
+    title:'Pain Level, Serially Reassessed',
+    req:'Pain 0-10 (or nonverbal scale) at initial assessment, after every analgesic, and at handoff.',
+    why:'Pain reassessed after treatment is a hallmark critical care activity for payers and a required element of ongoing assessment for CAMTS and QA. An analgesic with no documented reassessment is an intervention with no documented effect.',
+    rx:[/pain\s*(level|score|scale)?\s*[:=]?\s*\d+\s*(\/|of|out\s+of)?\s*10?/i, /\bflacc\b/i, /nonverbal\s+(pain\s+)?scale/i] }
+];
+
+/* Denial language */
+var DENIAL = [
+  { rx:/(?<!un)\bstable\b/gi, word:'"stable"',
+    fix:'Write: "Vital signs and MAP stabilizing with ongoing infusion titrated to maintain MAP 65 or greater. Patient remains at high risk of deterioration without continuous critical care monitoring."' },
+  { rx:/\broutine\b/gi, word:'"routine"',
+    fix:'Describe the specific monitoring and management performed instead of calling anything routine.' },
+  { rx:/\bno\s+complaints\b/gi, word:'"no complaints"',
+    fix:'Write: "Pain 2/10 following fentanyl 50 mcg IV at 1420, reassessed at 1430. Continued serial pain assessment through handoff."' },
+  { rx:/resting\s+comfortably/gi, word:'"resting comfortably"',
+    fix:'Chart the RASS or pain score and the therapy maintaining it instead.' },
+  { rx:/\buneventful\b/gi, word:'"uneventful"',
+    fix:'Write: "No deterioration occurred because sedation, ventilation, and infusions were actively managed en route."' },
+  { rx:/without\s+incident/gi, word:'"without incident"',
+    fix:'Write: "Continuous cardiac, SpO2, ETCO2, and hemodynamic monitoring maintained throughout transport with serial reassessments."' },
+  { rx:/\bwnl\b/gi, word:'"WNL"',
+    fix:'Write the actual values: "BP 118/74 (MAP 89) maintained on current infusion rates. Hemodynamics dependent on ongoing vasopressor support."' }
+];
+
+var state = { mission:'ift', mode:'air', vent:false, sed:false, results:{}, analyzed:false, langHits:[] };
+
+function applicable(c) {
+  if (c.mission && c.mission !== state.mission) return false;
+  if (c.mode && c.mode !== state.mode) return false;
+  if (c.vent && !state.vent) return false;
+  if (c.sed && !state.sed) return false;
+  return true;
+}
+
+function snippet(text, match) {
+  var i = match.index, start = Math.max(0, i - 45), end = Math.min(text.length, i + match[0].length + 45);
+  return (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ') + (end < text.length ? '…' : '');
+}
+
+function detect(c, text) {
+  if (!text.trim()) return { status:'fail', found:null };
+  if (c.special === 'times') {
+    var times = text.match(/\b([01]?\d|2[0-3]):?[0-5]\d\b/g) || [];
+    var vitals = text.match(/\b(bp|hr|rr|spo2|map|etco2)\b/gi) || [];
+    if (times.length >= 3 && vitals.length >= 2) return { status:'pass', found:times.length + ' timestamps and ' + vitals.length + ' vital-sign references found' };
+    if (times.length >= 1) return { status:'review', found:'Only ' + times.length + ' timestamp(s) detected. Confirm serial reassessments cover the full patient contact time.' };
+    return { status:'fail', found:null };
+  }
+  var hits = 0, firstMatch = null;
+  for (var i = 0; i < c.rx.length; i++) {
+    var m = c.rx[i].exec(text);
+    if (m) { hits++; if (!firstMatch) firstMatch = m; }
+  }
+  var need = c.min || 1;
+  if (hits >= need) return { status:'pass', found:snippet(text, firstMatch) };
+  if (hits > 0 && need > 1) return { status:'review', found:'Only ' + hits + ' of ' + need + ' required parameters detected. Verify all menu values are charted.' };
+  return { status:'fail', found:null };
+}
+
+function analyze() {
+  var text = document.getElementById('chart').value;
+  state.analyzed = true;
+  state.results = {};
+  CRITERIA.forEach(function (c) {
+    if (!applicable(c)) { state.results[c.id] = { status:'na', found:null }; return; }
+    state.results[c.id] = detect(c, text);
+  });
+  state.langHits = [];
+  DENIAL.forEach(function (d) {
+    d.rx.lastIndex = 0;
+    var m = d.rx.exec(text);
+    if (m) state.langHits.push({ word:d.word, fix:d.fix, ctx:snippet(text, m) });
+  });
+  render();
+}
+
+function computeScore() {
+  var earned = 0, total = 0, pass = 0, fail = 0, review = 0;
+  CRITERIA.forEach(function (c) {
+    var r = state.results[c.id];
+    if (!r || r.status === 'na') return;
+    total += c.w;
+    if (r.status === 'pass') { earned += c.w; pass++; }
+    else if (r.status === 'review') { earned += c.w * 0.5; review++; }
+    else fail++;
+  });
+  var base = total ? (earned / total) * 100 : 0;
+  var penalty = Math.min(15, state.langHits.length * 3);
+  return { score: Math.max(0, Math.round(base - penalty)), pass:pass, fail:fail, review:review, penalty:penalty };
+}
+
+function grade(s) {
+  if (s >= 90) return ['Audit-ready', 'score-good', 'var(--green)'];
+  if (s >= 80) return ['Minor gaps', 'score-warn', 'var(--amber)'];
+  if (s >= 60) return ['At risk of denial', 'score-warn', 'var(--amber)'];
+  return ['Denial likely', 'score-bad', 'var(--red)'];
+}
+
+function render() {
+  var res = document.getElementById('results');
+  res.innerHTML = '';
+  if (!state.analyzed) return;
+
+  var s = computeScore();
+  var g = grade(s.score);
+  document.getElementById('score').textContent = s.score;
+  document.getElementById('score').className = 'scorenum ' + g[1];
+  document.getElementById('scorelabel').textContent = g[0];
+  document.getElementById('scorelabel').className = 'scorelabel ' + g[1];
+  document.getElementById('scoresub').textContent =
+    s.fail === 0 && s.review === 0
+      ? 'Every applicable element is documented. This chart makes its own case.'
+      : 'A payer reviewing this chart today would find ' + s.fail + ' missing element(s)' +
+        (s.review ? ' and ' + s.review + ' needing verification' : '') +
+        (s.penalty ? '. Denial language deducted ' + s.penalty + ' points.' : '.');
+  var bar = document.getElementById('meterbar');
+  bar.style.width = s.score + '%';
+  bar.style.background = g[2];
+  document.getElementById('pills').innerHTML =
+    '<span><b style="color:var(--green)">' + s.pass + '</b> documented</span>' +
+    '<span><b style="color:var(--red)">' + s.fail + '</b> missing</span>' +
+    '<span><b style="color:var(--amber)">' + s.review + '</b> verify</span>' +
+    (state.langHits.length ? '<span><b style="color:var(--red)">' + state.langHits.length + '</b> language flags</span>' : '');
+
+  /* language card */
+  var lc = document.getElementById('langcard'), lf = document.getElementById('langflags');
+  lc.style.display = 'block';
+  if (state.langHits.length) {
+    lf.innerHTML = state.langHits.map(function (h) {
+      return '<div class="flag"><b>' + h.word + ' found:</b> <i>' + esc(h.ctx) + '</i>' +
+             '<div class="fix"><b>Fix:</b> ' + esc(h.fix) + '</div></div>';
+    }).join('') +
+    '<div class="flag" style="background:#fff"><b>Why this matters:</b> One unqualified "patient stable" can undo every other page of the record. The payer reads it as: this patient did not need a helicopter or a critical care crew. Most of our patients are not stable; their vital signs are being maintained by our interventions. Describe the patient as stabilizing because of the treatment being provided.</div>';
+  } else {
+    lf.innerHTML = '<div class="okflag">✓ No denial language detected. Chart is free of "stable," "routine," "WNL," "uneventful," and "without incident."</div>';
+  }
+
+  /* criteria by section */
+  var sections = [];
+  CRITERIA.forEach(function (c) { if (sections.indexOf(c.sec) < 0) sections.push(c.sec); });
+  sections.forEach(function (sec) {
+    var cards = CRITERIA.filter(function (c) { return c.sec === sec; });
+    var visible = cards.filter(function (c) { return state.results[c.id]; });
+    if (!visible.length) return;
+    var div = document.createElement('div');
+    div.className = 'sec';
+    div.innerHTML = '<h3>' + esc(sec) + '</h3>';
+    cards.forEach(function (c) {
+      var r = state.results[c.id];
+      if (!r) return;
+      var card = document.createElement('div');
+      card.className = 'crit ' + r.status;
+      var mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : r.status === 'na' ? '–' : '?';
+      var html = '<div class="head"><div class="mark">' + mark + '</div><div style="flex:1">' +
+                 '<div class="title">' + esc(c.title) + '</div>' +
+                 '<div class="req">' + esc(c.req) + '</div>';
+      if (r.status === 'pass' && r.found) html += '<div class="found">“' + esc(r.found) + '”</div>';
+      if (r.status === 'review' && r.found) html += '<div class="why" style="border-color:#eeda9e;background:#fffbf0;color:#7a5a00"><b style="color:var(--amber)">Verify:</b> ' + esc(r.found) + '</div>';
+      if (r.status === 'fail') html += '<div class="why"><b>Why this matters:</b> ' + esc(c.why) + '</div>';
+      if (r.status === 'na') html += '<div class="hint">Not applicable to this mission profile.</div>';
+      html += '</div></div>';
+      card.innerHTML = html;
+      card.addEventListener('click', function () {
+        var order = ['pass', 'fail', 'na'];
+        var cur = order.indexOf(r.status);
+        r.status = order[(cur + 1) % order.length];
+        if (r.status !== 'pass') r.found = null;
+        render();
+      });
+      div.appendChild(card);
+    });
+    res.appendChild(div);
+  });
+
+  renderPrintHeader(s, g);
+  save();
+}
+
+function esc(t) {
+  return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderPrintHeader(s, g) {
+  var f = getFields();
+  document.getElementById('printheader').innerHTML =
+    '<h2 style="margin-bottom:8px">Trauma Star Documentation QI Report &mdash; Score: ' + s.score + '/100 (' + g[0] + ')</h2>' +
+    '<table><tr>' +
+    '<td><b>Flight Date</b>' + esc(f.date || '—') + '</td>' +
+    '<td><b>OCA #</b>' + esc(f.oca || '—') + '</td>' +
+    '<td><b>Aircraft</b>' + esc(f.aircraft || '—') + '</td>' +
+    '<td><b>Mission</b>' + (state.mission === 'scene' ? 'Scene Call' : 'Interfacility') + ' / ' + (state.mode === 'air' ? 'Air' : 'Ground CCT') + '</td></tr><tr>' +
+    '<td><b>Chief Complaint</b>' + esc(f.cc || '—') + '</td>' +
+    '<td><b>Flight Nurse</b>' + esc(f.rn || '—') + '</td>' +
+    '<td><b>Flight Paramedic</b>' + esc(f.medic || '—') + '</td>' +
+    '<td><b>Route</b>' + esc((f.pickup || '—') + ' → ' + (f.dropoff || '—')) + '</td>' +
+    '</tr><tr>' +
+    '<td><b>Primary ICD-10</b>' + esc(f.icd || '—') + '</td>' +
+    '<td><b>Secondary ICD-10</b>' + esc(f.icd2 || '—') + '</td>' +
+    '<td><b>Transport Code</b>' + esc(f.hcpcs ? f.hcpcs + (f.hcpcs === 'A0431' ? ' + A0436' : f.hcpcs === 'A0430' ? ' + A0435' : '') : '—') + '</td>' +
+    '<td><b>Loaded Miles</b>' + esc(f.miles || '—') + '</td>' +
+    '</tr></table>';
+}
+
+function getFields() {
+  return {
+    date: document.getElementById('f_date').value,
+    oca: document.getElementById('f_oca').value,
+    aircraft: document.getElementById('f_aircraft').value,
+    cc: document.getElementById('f_cc').value,
+    rn: document.getElementById('f_rn').value,
+    medic: document.getElementById('f_medic').value,
+    pickup: document.getElementById('f_pickup').value,
+    dropoff: document.getElementById('f_dropoff').value,
+    icd: document.getElementById('f_icd').value,
+    icd2: document.getElementById('f_icd2').value,
+    hcpcs: document.getElementById('f_hcpcs').value,
+    miles: document.getElementById('f_miles').value
+  };
+}
+
+/* --- Billing validation --- */
+var ICD_RX = /^[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$/i;
+function billRow(ok, text) {
+  return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-bottom:5px">' +
+    '<b style="color:var(--' + (ok === true ? 'green' : ok === 'warn' ? 'amber' : 'red') + ')">' +
+    (ok === true ? '✓' : ok === 'warn' ? '!' : '✗') + '</b><span>' + text + '</span></div>';
+}
+function renderBilling() {
+  var f = getFields();
+  var el = document.getElementById('billchecks');
+  var rows = '';
+  var airCodes = ['A0431', 'A0430'], groundCodes = ['A0434', 'A0433', 'A0427', 'A0429'];
+
+  if (!f.icd.trim()) {
+    rows += billRow(false, '<b>Primary ICD-10 missing.</b> The claim cannot be submitted without a principal diagnosis code, and it must match the working diagnosis documented in the chart.');
+  } else if (!ICD_RX.test(f.icd.trim())) {
+    rows += billRow(false, '<b>"' + esc(f.icd.trim()) + '" is not a valid ICD-10 format</b> (letter, two characters, optional decimal extension, e.g., A41.9 or S06.9X9A).');
+  } else {
+    rows += billRow(true, 'Primary ICD-10 <b>' + esc(f.icd.trim().toUpperCase()) + '</b> format valid. Confirm it matches the documented working diagnosis; a code the chart does not support invites an audit.');
+  }
+  if (f.icd2.trim()) {
+    var bad = f.icd2.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s && !ICD_RX.test(s); });
+    rows += bad.length
+      ? billRow(false, 'Secondary code(s) not valid ICD-10 format: <b>' + esc(bad.join(', ')) + '</b>')
+      : billRow(true, 'Secondary ICD-10 format valid. Secondary codes for shock, respiratory failure, or ventilator dependence strengthen medical necessity.');
+  }
+
+  if (!f.hcpcs) {
+    var suggest = state.mode === 'air' ? 'A0431 (rotary wing) is the expected base code for a Trauma Star flight.' : 'A0434 (SCT) is the expected code for an interfacility ground CCT.';
+    rows += billRow(false, '<b>No transport code selected.</b> ' + suggest);
+  } else {
+    if (state.mode === 'air' && groundCodes.indexOf(f.hcpcs) >= 0) {
+      rows += billRow(false, '<b>' + f.hcpcs + ' is a ground code but this review is marked Air Transport.</b> A rotary-wing flight bills A0431 plus A0436 mileage.');
+    } else if (state.mode === 'ground' && airCodes.indexOf(f.hcpcs) >= 0) {
+      rows += billRow(false, '<b>' + f.hcpcs + ' is an air code but this review is marked Ground CCT.</b>');
+    } else {
+      rows += billRow(true, 'Transport code <b>' + f.hcpcs + '</b> is consistent with the mission profile.');
+    }
+    if (f.hcpcs === 'A0431') rows += billRow('warn', 'Bill <b>A0436</b> (rotary wing mileage, per statute mile) with A0431.');
+    if (f.hcpcs === 'A0430') rows += billRow('warn', 'Bill <b>A0435</b> (fixed wing mileage, per statute mile) with A0430.');
+    if (f.hcpcs === 'A0434' && state.mission === 'scene') {
+      rows += billRow(false, '<b>SCT (A0434) cannot be billed on a scene call.</b> Per CMS definitions, Specialty Care Transport is by definition an interfacility service. A scene response bills at the emergency base level regardless of the care delivered.');
+    }
+  }
+
+  if (!f.miles.trim()) {
+    rows += billRow(false, '<b>Loaded miles missing.</b> Mileage codes (A0436/A0435) pay per patient-loaded statute mile; without the number the mileage line cannot be billed.');
+  } else if (isNaN(parseFloat(f.miles))) {
+    rows += billRow(false, 'Loaded miles must be a number.');
+  } else {
+    rows += billRow(true, 'Loaded miles: <b>' + esc(f.miles.trim()) + '</b>.');
+  }
+
+  if (state.mission === 'scene') {
+    rows += billRow('warn', 'Scene call: billed at emergency air ambulance base level. Critical care/SCT level applies to IFTs only. Documentation still determines whether the transport is paid at all.');
+  }
+  el.innerHTML = rows;
+}
+
+function checkHeader() {
+  var f = getFields();
+  var missing = [];
+  if (!f.date) missing.push('flight date');
+  if (!f.oca) missing.push('OCA #');
+  if (!f.aircraft) missing.push('aircraft');
+  if (!f.cc) missing.push('chief complaint');
+  if (!f.rn) missing.push('flight nurse');
+  if (!f.medic) missing.push('flight paramedic');
+  if (!f.pickup) missing.push('pick-up');
+  if (!f.dropoff) missing.push('drop-off');
+  document.getElementById('headerwarn').textContent =
+    missing.length ? 'Incomplete flight header: ' + missing.join(', ') : '';
+}
+
+/* toggles */
+document.querySelectorAll('.tg').forEach(function (el) {
+  el.addEventListener('click', function () {
+    var group = el.dataset.group, val = el.dataset.val;
+    if (group === 'mission' || group === 'mode') {
+      document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) { e.classList.remove('on'); });
+      el.classList.add('on');
+      state[group] = val;
+    } else {
+      el.classList.toggle('on');
+      state[group === 'vent' ? 'vent' : 'sed'] = el.classList.contains('on');
+    }
+    renderBilling();
+    if (state.analyzed) analyze();
+  });
+});
+
+document.getElementById('analyze').addEventListener('click', function () { checkHeader(); analyze(); });
+
+/* --- Document & photo upload (max 30), with PDF text extraction --- */
+var MAX_FILES = 30;
+var attachments = [];   /* {name, kind:'pdf'|'image', chars, thumb} */
+var pdfjsReady = null;
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (pdfjsReady) return pdfjsReady;
+  pdfjsReady = new Promise(function (resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function () {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve();
+    };
+    s.onerror = function () { reject(new Error('offline')); };
+    document.head.appendChild(s);
+  });
+  return pdfjsReady;
+}
+
+function extractPdfText(file) {
+  return loadPdfJs().then(function () {
+    return file.arrayBuffer();
+  }).then(function (buf) {
+    return window.pdfjsLib.getDocument({ data: buf }).promise;
+  }).then(function (doc) {
+    var chain = Promise.resolve('');
+    var pages = Math.min(doc.numPages, 40);
+    for (var p = 1; p <= pages; p++) {
+      (function (pageNum) {
+        chain = chain.then(function (acc) {
+          return doc.getPage(pageNum).then(function (page) {
+            return page.getTextContent();
+          }).then(function (tc) {
+            var txt = tc.items.map(function (it) { return it.str; }).join(' ');
+            return acc + '\n' + txt;
+          });
+        });
+      })(p);
+    }
+    return chain;
+  });
+}
+
+function makeThumb(file) {
+  return new Promise(function (resolve) {
+    var img = new Image();
+    var url = URL.createObjectURL(file);
+    img.onload = function () {
+      var c = document.createElement('canvas');
+      var scale = Math.min(1, 160 / Math.max(img.width, img.height));
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+function renderFiles() {
+  var el = document.getElementById('filelist');
+  el.innerHTML = attachments.map(function (a, i) {
+    return '<div style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:7px;padding:5px 8px;margin-bottom:5px;font-size:12.5px">' +
+      (a.kind === 'image' && a.thumb
+        ? '<img src="' + a.thumb + '" style="width:34px;height:34px;object-fit:cover;border-radius:5px">'
+        : '<span style="font-weight:700;color:var(--red);font-size:11px">PDF</span>') +
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(a.name) + '</span>' +
+      '<span style="color:var(--muted)">' + (a.kind === 'pdf' ? (a.chars ? Math.round(a.chars / 1000) + 'k chars extracted' : 'no text found') : 'photo') + '</span>' +
+      '<span data-rmfile="' + i + '" style="color:var(--muted);cursor:pointer;padding:2px 6px" title="Remove">&times;</span>' +
+    '</div>';
+  }).join('');
+  el.querySelectorAll('[data-rmfile]').forEach(function (x) {
+    x.addEventListener('click', function () {
+      attachments.splice(Number(x.dataset.rmfile), 1);
+      renderFiles();
+    });
+  });
+}
+
+function handleFiles(files) {
+  var status = document.getElementById('filestatus');
+  var incoming = Array.prototype.slice.call(files);
+  if (attachments.length + incoming.length > MAX_FILES) {
+    incoming = incoming.slice(0, MAX_FILES - attachments.length);
+    status.textContent = 'Limit is ' + MAX_FILES + ' documents per review; extra files were skipped.';
+  }
+  var chain = Promise.resolve();
+  incoming.forEach(function (file) {
+    chain = chain.then(function () {
+      if (/pdf$/i.test(file.name) || file.type === 'application/pdf') {
+        status.textContent = 'Extracting text from ' + file.name + '…';
+        return extractPdfText(file).then(function (text) {
+          var clean = (text || '').trim();
+          attachments.push({ name: file.name, kind: 'pdf', chars: clean.length });
+          if (clean) {
+            var ta = document.getElementById('chart');
+            ta.value += (ta.value ? '\n\n' : '') + '===== ' + file.name + ' =====\n' + clean;
+          }
+        }).catch(function (err) {
+          attachments.push({ name: file.name, kind: 'pdf', chars: 0 });
+          status.textContent = err.message === 'offline'
+            ? 'PDF extraction needs an internet connection (the PDF reader library loads from the web).'
+            : 'Could not read ' + file.name + '. If it is a scanned image PDF, there is no text layer to extract; enter its contents manually.';
+        });
+      }
+      return makeThumb(file).then(function (thumb) {
+        attachments.push({ name: file.name, kind: 'image', thumb: thumb });
+      });
+    });
+  });
+  chain.then(function () {
+    renderFiles();
+    save();
+    if (!/Extracting|connection|scanned/.test(status.textContent)) {
+      status.textContent = attachments.length + ' of ' + MAX_FILES + ' documents attached. Press Analyze to score.';
+    } else if (/Extracting/.test(status.textContent)) {
+      status.textContent = attachments.length + ' of ' + MAX_FILES + ' documents attached. Press Analyze to score.';
+    }
+  });
+}
+
+document.getElementById('uploadbtn').addEventListener('click', function () {
+  document.getElementById('fileinput').click();
+});
+document.getElementById('fileinput').addEventListener('change', function (e) {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+
+/* --- Review log: saved on this device, keyed by OCA number --- */
+function getLog() {
+  try { return JSON.parse(localStorage.getItem('tsqi_log') || '{}'); } catch (e) { return {}; }
+}
+function setLog(log) {
+  try { localStorage.setItem('tsqi_log', JSON.stringify(log)); } catch (e) { alert('Could not save: device storage is full.'); }
+}
+function saveToLog() {
+  var f = getFields();
+  if (!f.oca.trim()) { alert('Enter the OCA number first. It is the key each review is saved and logged under.'); document.getElementById('f_oca').focus(); return; }
+  if (!state.analyzed) { checkHeader(); analyze(); }
+  var s = computeScore();
+  var log = getLog();
+  log[f.oca.trim()] = {
+    f: f, chart: document.getElementById('chart').value,
+    mission: state.mission, mode: state.mode, vent: state.vent, sed: state.sed,
+    results: state.results, langHits: state.langHits, attachments: attachments,
+    score: s.score, savedAt: new Date().toISOString()
+  };
+  setLog(log);
+  renderLog();
+}
+function loadFromLog(key) {
+  var d = getLog()[key];
+  if (!d) return;
+  Object.keys(d.f).forEach(function (k) {
+    var el = document.getElementById('f_' + k);
+    if (el) el.value = d.f[k];
+  });
+  document.getElementById('chart').value = d.chart || '';
+  state.mission = d.mission; state.mode = d.mode; state.vent = d.vent; state.sed = d.sed;
+  ['mission', 'mode'].forEach(function (g) {
+    document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
+      e.classList.toggle('on', e.dataset.val === state[g]);
+    });
+  });
+  document.getElementById('tg_vent').classList.toggle('on', state.vent);
+  document.getElementById('tg_sed').classList.toggle('on', state.sed);
+  state.results = d.results || {};
+  state.langHits = d.langHits || [];
+  attachments = d.attachments || [];
+  renderFiles();
+  state.analyzed = true;
+  checkHeader();
+  renderBilling();
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function deleteFromLog(key) {
+  if (!confirm('Delete the saved review for OCA ' + key + '?')) return;
+  var log = getLog();
+  delete log[key];
+  setLog(log);
+  renderLog();
+}
+function renderLog() {
+  var log = getLog();
+  var keys = Object.keys(log).sort(function (a, b) { return (log[b].savedAt || '').localeCompare(log[a].savedAt || ''); });
+  var el = document.getElementById('logpanel');
+  if (!keys.length) { el.innerHTML = '<div style="font-size:13px;color:var(--muted)">No saved reviews yet.</div>'; return; }
+  el.innerHTML = keys.map(function (k) {
+    var d = log[k];
+    var g = grade(d.score);
+    return '<div class="crit" style="display:flex;align-items:center;gap:10px" data-log="' + esc(k) + '">' +
+      '<b class="' + g[1] + '" style="font-size:17px;width:34px;text-align:center">' + d.score + '</b>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600;font-size:13.5px">OCA ' + esc(k) + ' &middot; ' + esc(d.f.aircraft || 'Aircraft n/a') + '</div>' +
+        '<div style="font-size:12px;color:var(--muted)">' + esc(d.f.date || 'no date') + ' &middot; ' + esc(d.f.cc || 'no chief complaint') + '</div>' +
+      '</div>' +
+      '<span data-del="' + esc(k) + '" style="color:var(--muted);font-size:16px;padding:4px 8px" title="Delete">&times;</span>' +
+    '</div>';
+  }).join('');
+  el.querySelectorAll('[data-log]').forEach(function (row) {
+    row.addEventListener('click', function (ev) {
+      if (ev.target.dataset.del) { deleteFromLog(ev.target.dataset.del); ev.stopPropagation(); return; }
+      loadFromLog(row.dataset.log);
+    });
+  });
+}
+document.getElementById('savebtn').addEventListener('click', saveToLog);
+
+/* Export PDF: saves the review to the log, names the file, and opens the
+   system print dialog where "Save as PDF" produces an emailable file. */
+document.getElementById('printbtn').addEventListener('click', function () {
+  var f = getFields();
+  if (!state.analyzed) { checkHeader(); analyze(); }
+  if (f.oca.trim()) saveToLog();
+  var oldTitle = document.title;
+  document.title = 'TSQI_' + (f.oca.trim() || 'review') + '_' + (f.date || new Date().toISOString().slice(0, 10));
+  window.print();
+  document.title = oldTitle;
+});
+document.getElementById('resetbtn').addEventListener('click', function () {
+  if (!confirm('Clear this review and start a new one? Saved log entries are kept.')) return;
+  localStorage.removeItem('tsqi');
+  location.reload();
+});
+['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pickup','f_dropoff'].forEach(function (id) {
+  document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
+});
+['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
+  document.getElementById(id).addEventListener('input', function () { renderBilling(); save(); });
+});
+document.getElementById('chart').addEventListener('input', save);
+
+/* persistence */
+function save() {
+  try {
+    localStorage.setItem('tsqi', JSON.stringify({
+      f: getFields(), chart: document.getElementById('chart').value,
+      mission: state.mission, mode: state.mode, vent: state.vent, sed: state.sed,
+      attachments: attachments
+    }));
+  } catch (e) {}
+}
+function load() {
+  try {
+    var d = JSON.parse(localStorage.getItem('tsqi') || 'null');
+    if (!d) return;
+    Object.keys(d.f || {}).forEach(function (k) {
+      var el = document.getElementById('f_' + k);
+      if (el) el.value = d.f[k];
+    });
+    document.getElementById('chart').value = d.chart || '';
+    ['mission','mode'].forEach(function (g) {
+      if (!d[g]) return;
+      state[g] = d[g];
+      document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
+        e.classList.toggle('on', e.dataset.val === d[g]);
+      });
+    });
+    if (d.vent) { state.vent = true; document.getElementById('tg_vent').classList.add('on'); }
+    if (d.sed) { state.sed = true; document.getElementById('tg_sed').classList.add('on'); }
+    if (d.attachments) { attachments = d.attachments; renderFiles(); }
+  } catch (e) {}
+}
+load();
+checkHeader();
+renderBilling();
+renderLog();
+})();
+</script>
+</body>
+</html>
