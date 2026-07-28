@@ -398,11 +398,16 @@ var CRITERIA = [
     req:'Specify services, treatments, or interventions the patient required that were not available at the pickup location.',
     why:'This is the core of medical necessity. If the chart does not state what the patient needed that the current location could not provide, the reviewer concludes the patient could have stayed, and denies the claim.',
     rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i] },
-  { id:'condition', sec:'Transport Request & Medical Necessity', w:3,
-    title:'Patient’s Summarized Condition',
-    req:'The diagnosis (IFT) or working diagnosis (scene call) as reported to the crew.',
-    why:'The reviewer was not on the aircraft. The summarized condition is the frame for every other element of the chart. Without it, nothing else in the record has clinical context.',
+  { id:'cond_ift', sec:'Transport Request & Medical Necessity', w:3, mission:'ift',
+    title:'Patient’s Summarized Condition / Diagnosis',
+    req:'The diagnosis from the sending facility as reported to the crew.',
+    why:'The reviewer was not on the aircraft. The sending facility’s diagnosis is the frame for every other element of the chart. Without it, nothing else in the record has clinical context.',
     rx:[/diagnos[ie]s/i, /presents?\s+with/i, /found\s+(to\s+be|with)/i, /reported\s+(to\s+have|that)/i, /working\s+dx/i, /\bdx\b/i] },
+  { id:'cond_scene', sec:'Transport Request & Medical Necessity', w:3, mission:'scene',
+    title:'Chief Complaint and Reason Called',
+    req:'There is no diagnosis on a scene call. Document the chief complaint, why the aircraft was requested, and the working impression from what was found.',
+    why:'On a scene call there are no labs or a diagnosis to lean on. The chief complaint and the reason the aircraft was called are the entire clinical frame a payer reviews. A scene chart that never states why the helicopter was requested cannot establish medical necessity.',
+    rx:[/chief\s+complaint/i, /\bc\/o\b/i, /(called|dispatched|requested)\s+(for|to)/i, /working\s+(diagnosis|impression)/i, /found\s+(supine|prone|unresponsive|unconscious|conscious|alert|seated|ambulatory|with)/i, /complain(s|ing|t)/i, /upon\s+arrival/i] },
   { id:'timedep', sec:'Transport Request & Medical Necessity', w:5,
     title:'Time-Dependent Illness Identified',
     req:'Conditions requiring prompt intervention: stroke, STEMI, trauma with internal bleeding, severe respiratory distress.',
@@ -459,10 +464,10 @@ var CRITERIA = [
     req:'All current infusions and medications documented in the Medication/Infusions Prior to Assessment section.',
     why:'The infusions running before your assessment are part of the proof that the patient required care beyond paramedic scope. They also close the loop between the sending facility’s treatment and yours.',
     rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i] },
-  { id:'labs', sec:'Clinical Record', w:3,
+  { id:'labs', sec:'Clinical Record', w:3, mission:'ift',
     title:'Labs and Imaging Results',
-    req:'Diagnostic results documented, including results that are pending or unknown.',
-    why:'Labs and imaging are the objective backbone of the working diagnosis. "Pending" and "unknown" are acceptable entries; a blank is not. A critical care team analyzes labs, imaging, and findings to build the real case for transport.',
+    req:'Diagnostic results from the sending facility, including results that are pending or unknown. Interfacility transports only; scene calls have no labs or imaging.',
+    why:'Labs and imaging are the objective backbone of the sending diagnosis. "Pending" and "unknown" are acceptable entries; a blank is not. A critical care team analyzes labs, imaging, and findings to build the real case for transport.',
     rx:[/\blabs?\b/i, /imaging/i, /\bct\b/i, /x.?ray/i, /\bmri\b/i, /lactate|troponin|wbc|hgb|hemoglobin|inr|creatinine/i, /pending|unknown/i] },
   { id:'serial', sec:'Clinical Record', w:5,
     title:'Serial Assessments and Vitals',
@@ -474,6 +479,15 @@ var CRITERIA = [
     req:'Every medication, titration, ventilator change, and adjustment recorded with a time and the patient’s response.',
     why:'This is the proof of critical care. A chart with no documented in-flight interventions or titrations tells the reviewer the patient could have gone by ground with a basic crew. "Norepinephrine titrated from 8 to 12 mcg/min at 1418 for MAP 58" documents an unstable patient; the same patient with nothing charted looks stable on paper.',
     rx:[/titrat/i, /(administered|given)\s+at\s+\d/i, /(increased|decreased|adjusted|weaned|started|discontinued)\b/i, /\d+\s*(mcg|mg|units?)\/(kg\/)?(min|hr)/i] },
+
+  { id:'hypoxia_rx', sec:'Clinical Record', w:5,
+    title:'Hypoxia Addressed with Intervention',
+    req:'If hypoxia or desaturation is noted anywhere in the chart, a corresponding intervention (oxygen titration, airway maneuver, suction, PEEP/FiO2 change, BVM, intubation) and the patient response must be documented.',
+    why:'A documented problem with no documented response is the most damaging kind of charting. If SpO2 falls and the record shows no oxygen titration, airway maneuver, or ventilator change, the reviewer reads either unmonitored deterioration or undocumented care. Every noted hypoxic episode must be paired with the intervention that addressed it and the reassessment showing the result.',
+    special:'conditional',
+    naText:'No hypoxia or desaturation documented in this chart — check not applicable.',
+    trig:[/hypox(ia|ic|emia)/i, /desaturat/i, /spo2\s*(of|at|dropped\s*(to)?|fell\s*(to)?|down\s*(to)?)?\s*[:=]?\s*[0-8]\d\b/i, /sats?\s+(dropped|fell|of|at)\s*(to)?\s*[0-8]\d\b/i],
+    rx:[/(increased|titrated|placed|applied|administered|started)\s+(on\s+)?(fio2|o2|oxygen|nrb|high.?flow)/i, /(fio2|o2|oxygen)\s+(increased|titrated|weaned|applied|administered|to\s+\d)/i, /non.?rebreather|\bnrb\b|nasal\s+cannula|high.?flow/i, /\bbvm\b|bag(ged|ging)/i, /intubat/i, /peep\s+(increased|titrated|to\s+\d)/i, /suction(ed|ing)?/i, /reposition(ed|ing)?|jaw\s+thrust|head.?tilt|airway\s+(opened|repositioned|maneuver)/i, /cpap|bipap/i, /recruitment\s+maneuver/i] },
 
   /* --- CAMTS & safety --- */
   { id:'ptemp', sec:'CAMTS Required on Every Patient', w:3,
@@ -611,6 +625,19 @@ function snippet(text, match) {
 
 function detect(c, text) {
   if (!text.trim()) return { status:'fail', found:null };
+  if (c.special === 'conditional') {
+    var trigMatch = null;
+    for (var t = 0; t < c.trig.length; t++) {
+      var tm = c.trig[t].exec(text);
+      if (tm) { trigMatch = tm; break; }
+    }
+    if (!trigMatch) return { status:'na', found:null };
+    for (var u = 0; u < c.rx.length; u++) {
+      var um = c.rx[u].exec(text);
+      if (um) return { status:'pass', found:'Hypoxia noted (“' + snippet(text, trigMatch) + '”) and intervention documented: “' + snippet(text, um) + '”' };
+    }
+    return { status:'fail', found:null };
+  }
   if (c.special === 'times') {
     var times = text.match(/\b([01]?\d|2[0-3]):?[0-5]\d\b/g) || [];
     var vitals = text.match(/\b(bp|hr|rr|spo2|map|etco2)\b/gi) || [];
@@ -818,7 +845,7 @@ function render() {
       if (r.status === 'pass' && r.found) html += '<div class="found">“' + esc(r.found) + '”</div>';
       if (r.status === 'review' && r.found) html += '<div class="why" style="border-color:#eeda9e;background:#fffbf0;color:#7a5a00"><b style="color:var(--amber)">Verify:</b> ' + esc(r.found) + '</div>';
       if (r.status === 'fail') html += '<div class="why"><b>Why this matters:</b> ' + esc(c.why) + '</div>';
-      if (r.status === 'na') html += '<div class="hint">Not applicable to this mission profile.</div>';
+      if (r.status === 'na') html += '<div class="hint">' + esc(c.naText || 'Not applicable to this mission profile.') + '</div>';
       html += '</div></div>';
       card.innerHTML = html;
       card.addEventListener('click', function () {
