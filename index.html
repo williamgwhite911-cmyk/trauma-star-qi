@@ -262,7 +262,11 @@ button.primary:hover { filter: brightness(1.07); }
 
         <label style="margin-top:16px">Source Documents &amp; Photos (up to 30)</label>
         <input type="file" id="fileinput" multiple accept=".pdf,image/*" style="display:none">
-        <button type="button" id="uploadbtn" style="width:100%;background:#fff;border:1px dashed var(--blue);color:var(--blue);font:inherit;font-weight:600;padding:10px;border-radius:8px;cursor:pointer">+ Upload PDFs &amp; Photos</button>
+        <input type="file" id="camerainput" accept="image/*" capture="environment" style="display:none">
+        <div style="display:flex;gap:8px">
+          <button type="button" id="uploadbtn" style="flex:1;background:#fff;border:1px dashed var(--blue);color:var(--blue);font:inherit;font-weight:600;padding:10px;border-radius:8px;cursor:pointer">+ Upload PDFs &amp; Photos</button>
+          <button type="button" id="camerabtn" style="flex:1;background:#fff;border:1px dashed var(--blue);color:var(--blue);font:inherit;font-weight:600;padding:10px;border-radius:8px;cursor:pointer">&#128247; Take Photo</button>
+        </div>
         <div id="filelist" style="margin-top:8px"></div>
         <div id="filestatus" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
 
@@ -288,26 +292,7 @@ button.primary:hover { filter: brightness(1.07); }
             <input type="text" id="f_icd2" list="icdlist" placeholder="e.g., J96.01, R57.0">
           </div>
         </div>
-        <datalist id="icdlist">
-          <option value="A41.9">Sepsis, unspecified organism</option>
-          <option value="R65.21">Severe sepsis with septic shock</option>
-          <option value="I21.3">STEMI, unspecified site</option>
-          <option value="I63.9">Cerebral infarction (ischemic stroke), unspecified</option>
-          <option value="I61.9">Intracerebral hemorrhage, unspecified</option>
-          <option value="I71.00">Aortic dissection, unspecified site</option>
-          <option value="I46.9">Cardiac arrest, cause unspecified</option>
-          <option value="R57.0">Cardiogenic shock</option>
-          <option value="R57.1">Hypovolemic shock</option>
-          <option value="J96.01">Acute respiratory failure with hypoxia</option>
-          <option value="J96.02">Acute respiratory failure with hypercapnia</option>
-          <option value="S06.9X9A">Intracranial injury (TBI), unspecified, initial</option>
-          <option value="T07.XXXA">Multiple injuries, unspecified, initial</option>
-          <option value="S27.0XXA">Traumatic pneumothorax, initial</option>
-          <option value="K92.2">Gastrointestinal hemorrhage, unspecified</option>
-          <option value="T30.0">Burn, unspecified body region</option>
-          <option value="O72.1">Postpartum hemorrhage</option>
-          <option value="G40.901">Epilepsy with status epilepticus</option>
-        </datalist>
+        <datalist id="icdlist"></datalist>
         <div class="row2">
           <div>
             <label>Transport Code (HCPCS)</label>
@@ -787,9 +772,9 @@ function renderPrintHeader(s, g) {
     '<td><b>Flight Paramedic</b>' + esc(f.medic || '—') + '</td>' +
     '<td><b>Route</b>' + esc((f.pickup || '—') + ' → ' + (f.dropoff || '—')) + '</td>' +
     '</tr><tr>' +
-    '<td><b>Primary ICD-10</b>' + esc(f.icd || '—') + '</td>' +
-    '<td><b>Secondary ICD-10</b>' + esc(f.icd2 || '—') + '</td>' +
-    '<td><b>Transport Code</b>' + esc(f.hcpcs ? f.hcpcs + (f.hcpcs === 'A0431' ? ' + A0436' : f.hcpcs === 'A0430' ? ' + A0435' : '') : '—') + '</td>' +
+    '<td><b>Primary ICD-10</b>' + esc(f.icd ? f.icd.toUpperCase() + (icdDesc(f.icd.trim()) ? ' — ' + icdDesc(f.icd.trim()) : '') : '—') + '</td>' +
+    '<td><b>Secondary ICD-10</b>' + esc(f.icd2 ? f.icd2.split(',').map(function (c) { c = c.trim().toUpperCase(); var d = icdDesc(c); return d ? c + ' (' + d + ')' : c; }).join('; ') : '—') + '</td>' +
+    '<td><b>Transport Code</b>' + esc(f.hcpcs ? f.hcpcs + (f.hcpcs === 'A0431' ? ' + A0436' : f.hcpcs === 'A0430' ? ' + A0435' : '') + (HCPCS_DESC[f.hcpcs] ? ' — ' + HCPCS_DESC[f.hcpcs] : '') : '—') + '</td>' +
     '<td><b>Loaded Miles</b>' + esc(f.miles || '—') + '</td>' +
     '</tr></table>';
 }
@@ -813,6 +798,81 @@ function getFields() {
 
 /* --- Billing validation --- */
 var ICD_RX = /^[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$/i;
+
+/* Built-in descriptions for common flight diagnoses (ICD-10-CM) */
+var ICD_DESC = {
+  'A41.9':'Sepsis, unspecified organism',
+  'R65.20':'Severe sepsis without septic shock',
+  'R65.21':'Severe sepsis with septic shock',
+  'I21.3':'ST elevation myocardial infarction (STEMI), unspecified site',
+  'I21.4':'Non-ST elevation myocardial infarction (NSTEMI)',
+  'I46.9':'Cardiac arrest, cause unspecified',
+  'I47.2':'Ventricular tachycardia',
+  'I48.91':'Atrial fibrillation, unspecified',
+  'I44.2':'Complete atrioventricular block',
+  'I50.9':'Heart failure, unspecified',
+  'I63.9':'Cerebral infarction (ischemic stroke), unspecified',
+  'G45.9':'Transient ischemic attack (TIA), unspecified',
+  'I60.9':'Subarachnoid hemorrhage, unspecified',
+  'I61.9':'Intracerebral hemorrhage (hemorrhagic stroke), unspecified',
+  'I71.00':'Aortic dissection, unspecified site',
+  'I71.3':'Abdominal aortic aneurysm, ruptured',
+  'I26.99':'Pulmonary embolism without acute cor pulmonale',
+  'R57.0':'Cardiogenic shock',
+  'R57.1':'Hypovolemic shock',
+  'R57.8':'Other shock',
+  'J96.00':'Acute respiratory failure, unspecified with hypoxia or hypercapnia',
+  'J96.01':'Acute respiratory failure with hypoxia',
+  'J96.02':'Acute respiratory failure with hypercapnia',
+  'J96.20':'Acute and chronic respiratory failure, unspecified',
+  'J45.902':'Unspecified asthma with status asthmaticus',
+  'J44.1':'COPD with acute exacerbation',
+  'J81.0':'Acute pulmonary edema',
+  'J18.9':'Pneumonia, unspecified organism',
+  'E10.10':'Type 1 diabetes with ketoacidosis (DKA) without coma',
+  'E11.10':'Type 2 diabetes with ketoacidosis without coma',
+  'E87.5':'Hyperkalemia',
+  'R56.9':'Unspecified convulsions (seizure)',
+  'G40.901':'Epilepsy, unspecified, with status epilepticus',
+  'K92.2':'Gastrointestinal hemorrhage, unspecified',
+  'S06.9X9A':'Unspecified intracranial injury (TBI), initial encounter',
+  'T07.XXXA':'Unspecified multiple injuries, initial encounter',
+  'S27.0XXA':'Traumatic pneumothorax, initial encounter',
+  'T14.90XA':'Injury, unspecified, initial encounter',
+  'T30.0':'Burn of unspecified body region, unspecified degree',
+  'T50.901A':'Poisoning by unspecified drug (overdose), accidental, initial',
+  'O72.1':'Other immediate postpartum hemorrhage',
+  'O15.9':'Eclampsia, unspecified as to time period',
+  'P22.0':'Respiratory distress syndrome of newborn',
+  'P36.9':'Bacterial sepsis of newborn, unspecified'
+};
+
+/* HCPCS ambulance code descriptions */
+var HCPCS_DESC = {
+  'A0431':'Ambulance service, conventional air services, transport, one way (rotary wing)',
+  'A0436':'Rotary wing air mileage, per statute mile',
+  'A0430':'Ambulance service, conventional air services, transport, one way (fixed wing)',
+  'A0435':'Fixed wing air mileage, per statute mile',
+  'A0434':'Specialty Care Transport (SCT) — interfacility, care beyond paramedic scope',
+  'A0433':'Advanced Life Support, Level 2 (ALS2)',
+  'A0427':'Advanced Life Support, emergency transport, Level 1 (ALS1-Emergency)',
+  'A0429':'Basic Life Support, emergency transport (BLS-Emergency)'
+};
+
+function icdDesc(code) {
+  return ICD_DESC[code.toUpperCase()] || null;
+}
+/* populate the ICD-10 quick-pick list from the dictionary */
+(function () {
+  var dl = document.getElementById('icdlist');
+  Object.keys(ICD_DESC).forEach(function (code) {
+    var o = document.createElement('option');
+    o.value = code;
+    o.label = ICD_DESC[code];
+    o.textContent = ICD_DESC[code];
+    dl.appendChild(o);
+  });
+})();
 function billRow(ok, text) {
   return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-bottom:5px">' +
     '<b style="color:var(--' + (ok === true ? 'green' : ok === 'warn' ? 'amber' : 'red') + ')">' +
@@ -829,13 +889,26 @@ function renderBilling() {
   } else if (!ICD_RX.test(f.icd.trim())) {
     rows += billRow(false, '<b>"' + esc(f.icd.trim()) + '" is not a valid ICD-10 format</b> (letter, two characters, optional decimal extension, e.g., A41.9 or S06.9X9A).');
   } else {
-    rows += billRow(true, 'Primary ICD-10 <b>' + esc(f.icd.trim().toUpperCase()) + '</b> format valid. Confirm it matches the documented working diagnosis; a code the chart does not support invites an audit.');
+    var pcode = f.icd.trim().toUpperCase();
+    var pdesc = icdDesc(pcode);
+    rows += pdesc
+      ? billRow(true, 'Primary ICD-10 <b>' + esc(pcode) + '</b> &mdash; <b>' + esc(pdesc) + '</b>. Confirm it matches the documented working diagnosis; a code the chart does not support invites an audit.')
+      : billRow('warn', 'Primary ICD-10 <b>' + esc(pcode) + '</b> format valid, but it is not in this tool\'s built-in list of common flight diagnoses. Verify the code and its description against the ICD-10-CM manual.');
   }
   if (f.icd2.trim()) {
-    var bad = f.icd2.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s && !ICD_RX.test(s); });
-    rows += bad.length
-      ? billRow(false, 'Secondary code(s) not valid ICD-10 format: <b>' + esc(bad.join(', ')) + '</b>')
-      : billRow(true, 'Secondary ICD-10 format valid. Secondary codes for shock, respiratory failure, or ventilator dependence strengthen medical necessity.');
+    var codes2 = f.icd2.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var bad = codes2.filter(function (s) { return !ICD_RX.test(s); });
+    if (bad.length) {
+      rows += billRow(false, 'Secondary code(s) not valid ICD-10 format: <b>' + esc(bad.join(', ')) + '</b>');
+    } else {
+      codes2.forEach(function (c) {
+        var d = icdDesc(c.toUpperCase());
+        rows += d
+          ? billRow(true, 'Secondary <b>' + esc(c.toUpperCase()) + '</b> &mdash; ' + esc(d))
+          : billRow('warn', 'Secondary <b>' + esc(c.toUpperCase()) + '</b>: valid format, description not in built-in list; verify against the ICD-10-CM manual.');
+      });
+      rows += billRow(true, 'Secondary codes for shock, respiratory failure, or ventilator dependence strengthen medical necessity.');
+    }
   }
 
   if (!f.hcpcs) {
@@ -847,10 +920,10 @@ function renderBilling() {
     } else if (state.mode === 'ground' && airCodes.indexOf(f.hcpcs) >= 0) {
       rows += billRow(false, '<b>' + f.hcpcs + ' is an air code but this review is marked Ground CCT.</b>');
     } else {
-      rows += billRow(true, 'Transport code <b>' + f.hcpcs + '</b> is consistent with the mission profile.');
+      rows += billRow(true, 'Transport code <b>' + f.hcpcs + '</b> &mdash; ' + esc(HCPCS_DESC[f.hcpcs] || '') + '. Consistent with the mission profile.');
     }
-    if (f.hcpcs === 'A0431') rows += billRow('warn', 'Bill <b>A0436</b> (rotary wing mileage, per statute mile) with A0431.');
-    if (f.hcpcs === 'A0430') rows += billRow('warn', 'Bill <b>A0435</b> (fixed wing mileage, per statute mile) with A0430.');
+    if (f.hcpcs === 'A0431') rows += billRow('warn', 'Bill <b>A0436</b> with A0431 &mdash; ' + esc(HCPCS_DESC['A0436']) + '.');
+    if (f.hcpcs === 'A0430') rows += billRow('warn', 'Bill <b>A0435</b> with A0430 &mdash; ' + esc(HCPCS_DESC['A0435']) + '.');
     if (f.hcpcs === 'A0434' && state.mission === 'scene') {
       rows += billRow(false, '<b>SCT (A0434) cannot be billed on a scene call.</b> Per CMS definitions, Specialty Care Transport is by definition an interfacility service. A scene response bills at the emergency base level regardless of the care delivered.');
     }
@@ -1034,6 +1107,14 @@ document.getElementById('uploadbtn').addEventListener('click', function () {
   document.getElementById('fileinput').click();
 });
 document.getElementById('fileinput').addEventListener('change', function (e) {
+  handleFiles(e.target.files);
+  e.target.value = '';
+});
+/* Take Photo: opens the camera directly on phones/tablets; falls back to the file picker on desktop */
+document.getElementById('camerabtn').addEventListener('click', function () {
+  document.getElementById('camerainput').click();
+});
+document.getElementById('camerainput').addEventListener('change', function (e) {
   handleFiles(e.target.files);
   e.target.value = '';
 });
