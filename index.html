@@ -163,6 +163,15 @@ button.primary:hover { filter: brightness(1.07); }
 }
 .crit .why b { color: var(--red); }
 .crit .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+.ovr { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.ovrbtn {
+  border: 1px solid var(--line); background: #fff; border-radius: 99px;
+  padding: 2px 11px; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+}
+.ovrbtn.on-pass { background: var(--green); color: #fff; border-color: var(--green); }
+.ovrbtn.on-fail { background: var(--red); color: #fff; border-color: var(--red); }
+.ovrbtn.on-na { background: var(--muted); color: #fff; border-color: var(--muted); }
+.ovrnote { font-style: italic; color: var(--amber); font-weight: 600; }
 .flag {
   border: 1px solid #eec9c9;
   background: var(--red-bg);
@@ -350,7 +359,7 @@ button.primary:hover { filter: brightness(1.07); }
         <div class="scoresub" id="scoresub">Enter flight information and paste the chart, then press Analyze.</div>
         <div class="meter"><div id="meterbar" style="width:0%"></div></div>
         <div class="pillrow" id="pills"></div>
-        <div class="legend noprint">Click any item to cycle: Pass &rarr; Missing &rarr; N/A. Amber items need reviewer judgment.</div>
+        <div class="legend noprint">Use the Reviewer Override buttons on any item the automatic scan got wrong &mdash; the score and summary readjust instantly. Amber items need reviewer judgment.</div>
       </div>
       <div class="card" id="summarycard" style="display:none">
         <h2>Call Summary &amp; Reviewer Assessment</h2>
@@ -675,8 +684,10 @@ function analyze() {
   state.analyzed = true;
   state.results = {};
   CRITERIA.forEach(function (c) {
-    if (!applicable(c)) { state.results[c.id] = { status:'na', found:null }; return; }
-    state.results[c.id] = detect(c, text);
+    if (!applicable(c)) { state.results[c.id] = { status:'na', found:null, inapplicable:true }; return; }
+    var r = detect(c, text);
+    r.auto = r.status;
+    state.results[c.id] = r;
   });
   state.langHits = [];
   DENIAL.forEach(function (d) {
@@ -803,8 +814,11 @@ function render() {
 
     var well = [];
     CRITERIA.filter(function (c) { return state.results[c.id] && state.results[c.id].status === 'pass'; })
-      .sort(function (a, b) { return b.w - a.w; }).slice(0, 8)
-      .forEach(function (c) { well.push(c.title); });
+      .sort(function (a, b) {
+        var oa = state.results[a.id].overridden ? 1 : 0, ob = state.results[b.id].overridden ? 1 : 0;
+        return (ob - oa) || (b.w - a.w);
+      }).slice(0, 10)
+      .forEach(function (c) { well.push(c.title + (state.results[c.id].overridden ? ' (confirmed by reviewer override)' : '')); });
     if (!state.langHits.length) well.push('Chart is free of denial language ("stable," "routine," "without incident")');
     var limit2 = state.mission === 'scene' ? 10 : 20;
     if (tt.response !== null && tt.response <= 10) well.push('Response time within the 10-minute standard');
@@ -814,7 +828,7 @@ function render() {
     CRITERIA.forEach(function (c) {
       var r = state.results[c.id];
       if (!r) return;
-      if (r.status === 'fail') improve.push('Document ' + c.title.toLowerCase() + ' — ' + c.why.split('.')[0].toLowerCase() + '.');
+      if (r.status === 'fail') improve.push('Document ' + c.title.toLowerCase() + ' — ' + c.why.split('.')[0].toLowerCase() + '.' + (r.overridden ? ' (Marked missing by reviewer override.)' : ''));
       else if (r.status === 'review') improve.push('Verify ' + c.title.toLowerCase() + ' is fully charted.');
     });
     if (state.langHits.length) improve.push('Replace denial language (' + state.langHits.map(function (h) { return h.word; }).join(', ') + ') with active-management wording.');
@@ -860,14 +874,24 @@ function render() {
       if (r.status === 'review' && r.found) html += '<div class="why" style="border-color:#eeda9e;background:#fffbf0;color:#7a5a00"><b style="color:var(--amber)">Verify:</b> ' + esc(r.found) + '</div>';
       if (r.status === 'fail') html += '<div class="why"><b>Why this matters:</b> ' + esc(c.why) + '</div>';
       if (r.status === 'na') html += '<div class="hint">' + esc(c.naText || 'Not applicable to this mission profile.') + '</div>';
+      if (r.status === 'pass' && !r.found && r.overridden) html += '<div class="found">Marked present by reviewer override.</div>';
+      if (!r.inapplicable) {
+        var lbl = { pass:'present', fail:'missing', review:'needs verification', na:'n/a' };
+        html += '<div class="ovr noprint"><span>Reviewer override:</span>' +
+          '<button type="button" class="ovrbtn' + (r.status === 'pass' ? ' on-pass' : '') + '" data-ovr="pass">✓ Present</button>' +
+          '<button type="button" class="ovrbtn' + (r.status === 'fail' ? ' on-fail' : '') + '" data-ovr="fail">✗ Missing</button>' +
+          '<button type="button" class="ovrbtn' + (r.status === 'na' ? ' on-na' : '') + '" data-ovr="na">N/A</button>' +
+          (r.overridden ? '<span class="ovrnote">AI said ' + lbl[r.auto] + '; reviewer set ' + lbl[r.status] + '. Score adjusted.</span>' : '') +
+          '</div>';
+      }
       html += '</div></div>';
       card.innerHTML = html;
-      card.addEventListener('click', function () {
-        var order = ['pass', 'fail', 'na'];
-        var cur = order.indexOf(r.status);
-        r.status = order[(cur + 1) % order.length];
-        if (r.status !== 'pass') r.found = null;
-        render();
+      card.querySelectorAll('[data-ovr]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          r.status = b.dataset.ovr;
+          r.overridden = (r.auto !== undefined) && (r.status !== r.auto);
+          render();
+        });
       });
       div.appendChild(card);
     });
