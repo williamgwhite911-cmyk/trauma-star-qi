@@ -349,6 +349,10 @@ button.primary:hover { filter: brightness(1.07); }
         <h2>Language Audit &mdash; Words That Get Claims Denied</h2>
         <div id="langflags"></div>
       </div>
+      <div class="card" id="riskcard" style="display:none">
+        <h2>Risk Management Screen</h2>
+        <div id="riskflags"></div>
+      </div>
       <div id="results"></div>
     </div>
   </div>
@@ -532,7 +536,49 @@ var DENIAL = [
     fix:'Write the actual values: "BP 118/74 (MAP 89) maintained on current infusion rates. Hemodynamics dependent on ongoing vasopressor support."' }
 ];
 
-var state = { mission:'ift', mode:'air', vent:false, sed:false, results:{}, analyzed:false, langHits:[] };
+/* Risk management screening.
+   'procedure' = high-acuity procedure that triggers mandatory QI review.
+   'harm' = possible patient harm or deviation from standard of care. */
+var RISK = [
+  { cat:'procedure', label:'Intubation / advanced airway',
+    rx:/intubat|\brsi\b|rapid\s+sequence|endotracheal|\bett\b|supraglottic|i-?gel|king\s+airway|laryngoscop/i },
+  { cat:'procedure', label:'Surgical airway',
+    rx:/cricothyro|surgical\s+airway/i },
+  { cat:'procedure', label:'Chest tube / chest decompression',
+    rx:/chest\s+tube|thoracostomy|needle\s+decompression|pigtail\s+catheter/i },
+  { cat:'procedure', label:'Cardiac arrest / resuscitation',
+    rx:/cardiac\s+arrest|\bcpr\b|\brosc\b|defibrillat|asystole|v-?fib|ventricular\s+fibrillation|pulseless|code\s+blue/i },
+  { cat:'procedure', label:'Respiratory arrest / assisted ventilation event',
+    rx:/respiratory\s+arrest|apnei?c|\bapnea\b|bvm\s+ventilat|bag(ged|ging)\b/i },
+  { cat:'procedure', label:'Cardioversion / pacing',
+    rx:/cardiovert|cardioversion|transcutaneous\s+pacing|\btcp\b/i },
+  { cat:'procedure', label:'Blood product administration',
+    rx:/transfus|blood\s+products?|\bprbc\b|whole\s+blood|\bffp\b|platelets\s+administered/i },
+  { cat:'procedure', label:'Central line / IO access',
+    rx:/central\s+line|\bio\s+(access|placed|line)|intraosseous/i },
+  { cat:'harm', label:'Failed or multiple airway attempts',
+    rx:/failed\s+(intubation|airway|attempt)|multiple\s+attempts|unsuccessful\s+attempt|second\s+attempt/i },
+  { cat:'harm', label:'Esophageal intubation',
+    rx:/esophageal\s+intubation/i },
+  { cat:'harm', label:'Dislodged tube / line / unplanned extubation',
+    rx:/dislodg|unplanned\s+extubation|self.?extubat|accidental(ly)?\s+(removed|pulled)/i },
+  { cat:'harm', label:'Medication error / wrong dose / extravasation',
+    rx:/medication\s+error|wrong\s+(dose|drug|medication|patient)|incorrect\s+dose|overdose|extravasat|infiltrat/i },
+  { cat:'harm', label:'Equipment failure or malfunction',
+    rx:/(equipment|pump|vent(ilator)?|monitor|suction|battery)\s+(fail(ed|ure)?|malfunction|died)/i },
+  { cat:'harm', label:'Arrest or death during transport',
+    rx:/arrest(ed)?\s+(during|in)\s+(flight|transport)|deceased|expired|time\s+of\s+death|pronounced/i },
+  { cat:'harm', label:'Hypoxic episode / significant desaturation',
+    rx:/desaturat|spo2\s+(dropped|fell|decreased)\s+to\s+[0-8]\d|hypoxic?\s+(episode|event)/i },
+  { cat:'harm', label:'Aspiration',
+    rx:/aspirat(ed|ion)/i },
+  { cat:'harm', label:'Protocol deviation / care without order',
+    rx:/deviat(ed|ion)\s+from\s+protocol|outside\s+protocol|off\s+protocol|without\s+(an?\s+)?order/i },
+  { cat:'harm', label:'Patient fall / dropped during handling',
+    rx:/(patient|pt)\s+(fell|dropped)|fall\s+(during|from)\s+(loading|transfer)/i }
+];
+
+var state = { mission:'ift', mode:'air', vent:false, sed:false, results:{}, analyzed:false, langHits:[], riskHits:[] };
 
 function applicable(c) {
   if (c.mission && c.mission !== state.mission) return false;
@@ -580,6 +626,11 @@ function analyze() {
     d.rx.lastIndex = 0;
     var m = d.rx.exec(text);
     if (m) state.langHits.push({ word:d.word, fix:d.fix, ctx:snippet(text, m) });
+  });
+  state.riskHits = [];
+  RISK.forEach(function (r) {
+    var m = r.rx.exec(text);
+    if (m) state.riskHits.push({ cat:r.cat, label:r.label, ctx:snippet(text, m) });
   });
   render();
 }
@@ -643,6 +694,31 @@ function render() {
     '<div class="flag" style="background:#fff"><b>Why this matters:</b> One unqualified "patient stable" can undo every other page of the record. The payer reads it as: this patient did not need a helicopter or a critical care crew. Most of our patients are not stable; their vital signs are being maintained by our interventions. Describe the patient as stabilizing because of the treatment being provided.</div>';
   } else {
     lf.innerHTML = '<div class="okflag">✓ No denial language detected. Chart is free of "stable," "routine," "WNL," "uneventful," and "without incident."</div>';
+  }
+
+  /* risk management screen */
+  var rc = document.getElementById('riskcard'), rf = document.getElementById('riskflags');
+  rc.style.display = 'block';
+  if (state.riskHits.length) {
+    var harms = state.riskHits.filter(function (h) { return h.cat === 'harm'; });
+    var procs = state.riskHits.filter(function (h) { return h.cat === 'procedure'; });
+    var html = '';
+    if (harms.length) {
+      html += '<div class="flag"><b>⚠ REFER TO RISK MANAGEMENT FOR FURTHER REVIEW.</b> This chart documents findings that may indicate patient harm or care not in accordance with standard. Do not alter the chart; route to Risk Management and QA through the chain of command.</div>';
+      html += harms.map(function (h) {
+        return '<div class="flag"><b>' + esc(h.label) + ':</b> <i>' + esc(h.ctx) + '</i></div>';
+      }).join('');
+    }
+    if (procs.length) {
+      html += '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">High-acuity procedure(s) documented &mdash; refer to Risk Management / QA for standard procedure review:</b></div>';
+      html += procs.map(function (h) {
+        return '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">' + esc(h.label) + ':</b> <i>' + esc(h.ctx) + '</i></div>';
+      }).join('');
+      html += '<div class="flag" style="background:#fff"><b>Why:</b> Intubation, chest tube insertion, respiratory or cardiac arrest, and similar high-acuity events receive routine QI review on every chart where they occur. Verify the procedure documentation includes indication, times, attempts, confirmation (ETCO2 / lung sounds / imaging where applicable), and the patient response.</div>';
+    }
+    rf.innerHTML = html;
+  } else {
+    rf.innerHTML = '<div class="okflag">✓ No risk management triggers detected. No high-acuity procedures or possible-harm indicators found in the documentation.</div>';
   }
 
   /* criteria by section */
@@ -971,7 +1047,7 @@ function saveToLog() {
   log[f.oca.trim()] = {
     f: f, chart: document.getElementById('chart').value,
     mission: state.mission, mode: state.mode, vent: state.vent, sed: state.sed,
-    results: state.results, langHits: state.langHits, attachments: attachments,
+    results: state.results, langHits: state.langHits, riskHits: state.riskHits, attachments: attachments,
     score: s.score, savedAt: new Date().toISOString()
   };
   setLog(log);
@@ -995,6 +1071,7 @@ function loadFromLog(key) {
   document.getElementById('tg_sed').classList.toggle('on', state.sed);
   state.results = d.results || {};
   state.langHits = d.langHits || [];
+  state.riskHits = d.riskHits || [];
   attachments = d.attachments || [];
   renderFiles();
   state.analyzed = true;
