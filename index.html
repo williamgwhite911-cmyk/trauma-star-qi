@@ -338,6 +338,8 @@ button.primary:hover { filter: brightness(1.07); }
         <h2>Review Log</h2>
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Reviews are saved on this device, keyed by OCA number. Click a review to reload it; Export PDF creates a file you can email.</div>
         <div id="logpanel"></div>
+        <button id="clearbtn" style="width:100%;margin-top:10px;background:#fff;border:1px solid var(--red);color:var(--red);font:inherit;font-weight:600;padding:9px;border-radius:8px;cursor:pointer">Clear All Data</button>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center">Erases the current review and every saved log entry from this device. Exported PDFs are not affected.</div>
       </div>
     </div>
 
@@ -1403,6 +1405,16 @@ document.getElementById('printbtn').addEventListener('click', function () {
 document.getElementById('resetbtn').addEventListener('click', function () {
   if (!confirm('Clear this review and start a new one? Saved log entries are kept.')) return;
   localStorage.removeItem('tsqi');
+  location.reload();
+});
+
+/* Clear All Data: wipes the working review AND the entire saved log */
+document.getElementById('clearbtn').addEventListener('click', function () {
+  var n = Object.keys(getLog()).length;
+  if (!confirm('This erases the current review AND all ' + n + ' saved log ' + (n === 1 ? 'entry' : 'entries') + ' from this device. Exported PDF files are not affected. Continue?')) return;
+  if (n > 0 && !confirm('Are you sure? Saved reviews that were never exported to PDF cannot be recovered.')) return;
+  localStorage.removeItem('tsqi');
+  localStorage.removeItem('tsqi_log');
   location.reload();
 });
 
