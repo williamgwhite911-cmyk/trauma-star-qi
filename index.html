@@ -315,6 +315,20 @@ button.primary:hover { filter: brightness(1.07); }
       </div>
 
       <div class="card">
+        <h2>Mission Times</h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">24-hour times, e.g. 1432 or 14:32. Overnight rollover is handled automatically.</div>
+        <div class="row2">
+          <div><label>Dispatch / Tones</label><input type="text" id="f_tdisp" inputmode="numeric" placeholder="e.g., 1402"></div>
+          <div><label>Wheels Up (En Route)</label><input type="text" id="f_tlift" inputmode="numeric" placeholder="e.g., 1410"></div>
+        </div>
+        <div class="row2">
+          <div><label>Land at Scene / Facility</label><input type="text" id="f_tland" inputmode="numeric" placeholder="e.g., 1424"></div>
+          <div><label>Depart (Takeoff w/ Patient)</label><input type="text" id="f_tdep" inputmode="numeric" placeholder="e.g., 1441"></div>
+        </div>
+        <div id="timechecks" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
         <h2>Review Log</h2>
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Reviews are saved on this device, keyed by OCA number. Click a review to reload it; Export PDF creates a file you can email.</div>
         <div id="logpanel"></div>
@@ -776,6 +790,15 @@ function renderPrintHeader(s, g) {
     '<td><b>Secondary ICD-10</b>' + esc(f.icd2 ? f.icd2.split(',').map(function (c) { c = c.trim().toUpperCase(); var d = icdDesc(c); return d ? c + ' (' + d + ')' : c; }).join('; ') : '—') + '</td>' +
     '<td><b>Transport Code</b>' + esc(f.hcpcs ? f.hcpcs + (f.hcpcs === 'A0431' ? ' + A0436' : f.hcpcs === 'A0430' ? ' + A0435' : '') + (HCPCS_DESC[f.hcpcs] ? ' — ' + HCPCS_DESC[f.hcpcs] : '') : '—') + '</td>' +
     '<td><b>Loaded Miles</b>' + esc(f.miles || '—') + '</td>' +
+    '</tr><tr>' +
+    (function () {
+      var t = computeTimes();
+      var limit = state.mission === 'scene' ? 10 : 20;
+      return '<td><b>Dispatch / Wheels Up</b>' + esc((f.tdisp || '—') + ' / ' + (f.tlift || '—')) + '</td>' +
+        '<td><b>Land / Depart</b>' + esc((f.tland || '—') + ' / ' + (f.tdep || '—')) + '</td>' +
+        '<td><b>Response Time</b>' + (t.response === null ? '—' : t.response + ' min' + (t.response > 10 ? ' — EXCEEDS 10 MIN, FLAGGED' : '')) + '</td>' +
+        '<td><b>' + (state.mission === 'scene' ? 'Scene Time' : 'Land-to-Takeoff') + '</b>' + (t.ground === null ? '—' : t.ground + ' min' + (t.ground > limit ? ' — EXCEEDS ' + limit + ' MIN, FLAGGED' : '')) + '</td>';
+    })() +
     '</tr></table>';
 }
 
@@ -792,8 +815,61 @@ function getFields() {
     icd: document.getElementById('f_icd').value,
     icd2: document.getElementById('f_icd2').value,
     hcpcs: document.getElementById('f_hcpcs').value,
-    miles: document.getElementById('f_miles').value
+    miles: document.getElementById('f_miles').value,
+    tdisp: document.getElementById('f_tdisp').value,
+    tlift: document.getElementById('f_tlift').value,
+    tland: document.getElementById('f_tland').value,
+    tdep: document.getElementById('f_tdep').value
   };
+}
+
+/* --- Mission time analysis ---
+   Thresholds: response (dispatch to skids up) 10 min; scene time (land to
+   takeoff, scene calls) 10 min; IFT land-to-takeoff 20 min. */
+function parseHM(s) {
+  var m = /^([01]?\d|2[0-3]):?([0-5]\d)$/.exec((s || '').trim());
+  return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+}
+function minsBetween(a, b) {
+  var d = b - a;
+  if (d < 0) d += 1440;
+  return d;
+}
+function computeTimes() {
+  var f = getFields();
+  var disp = parseHM(f.tdisp), lift = parseHM(f.tlift), land = parseHM(f.tland), dep = parseHM(f.tdep);
+  var out = { response: null, ground: null, invalid: [] };
+  [['tdisp', disp], ['tlift', lift], ['tland', land], ['tdep', dep]].forEach(function (p) {
+    if (f[p[0]].trim() && p[1] === null) out.invalid.push(f[p[0]].trim());
+  });
+  if (disp !== null && lift !== null) out.response = minsBetween(disp, lift);
+  if (land !== null && dep !== null) out.ground = minsBetween(land, dep);
+  return out;
+}
+function renderTimes() {
+  var t = computeTimes();
+  var el = document.getElementById('timechecks');
+  var rows = '';
+  t.invalid.forEach(function (v) {
+    rows += billRow(false, '"<b>' + esc(v) + '</b>" is not a valid 24-hour time (use HHMM, e.g., 1432).');
+  });
+  if (t.response === null) {
+    rows += billRow('warn', 'Enter dispatch and wheels-up times to check the <b>10-minute response</b> standard.');
+  } else if (t.response > 10) {
+    rows += billRow(false, '<b>Response time ' + t.response + ' minutes &mdash; exceeds the 10-minute standard. FLAG FOR RESPONSE REVIEW.</b> The chart must document the reason for the delay (weather check, duty crew status, refueling, second call holding).');
+  } else {
+    rows += billRow(true, 'Response time <b>' + t.response + ' minutes</b> (dispatch to wheels up). Within the 10-minute standard.');
+  }
+  var label = state.mission === 'scene' ? 'scene time' : 'land-to-takeoff time at the sending facility';
+  var limit = state.mission === 'scene' ? 10 : 20;
+  if (t.ground === null) {
+    rows += billRow('warn', 'Enter landing and departure times to check the <b>' + limit + '-minute ' + label + '</b> standard.');
+  } else if (t.ground > limit) {
+    rows += billRow(false, '<b>' + (state.mission === 'scene' ? 'Scene time' : 'Land-to-takeoff time') + ' ' + t.ground + ' minutes &mdash; exceeds the ' + limit + '-minute standard. FLAG FOR RESPONSE REVIEW.</b> The chart must document what extended the ground interval (extrication, airway management before flight, delayed handoff, packaging complications).');
+  } else {
+    rows += billRow(true, (state.mission === 'scene' ? 'Scene time' : 'Land-to-takeoff time') + ' <b>' + t.ground + ' minutes</b>. Within the ' + limit + '-minute standard.');
+  }
+  el.innerHTML = rows;
 }
 
 /* --- Billing validation --- */
@@ -971,6 +1047,7 @@ document.querySelectorAll('.tg').forEach(function (el) {
       state[group === 'vent' ? 'vent' : 'sed'] = el.classList.contains('on');
     }
     renderBilling();
+    renderTimes();
     if (state.analyzed) analyze();
   });
 });
@@ -1165,6 +1242,7 @@ function loadFromLog(key) {
   state.analyzed = true;
   checkHeader();
   renderBilling();
+  renderTimes();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1223,6 +1301,9 @@ document.getElementById('resetbtn').addEventListener('click', function () {
 ['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { renderBilling(); save(); });
 });
+['f_tdisp','f_tlift','f_tland','f_tdep'].forEach(function (id) {
+  document.getElementById(id).addEventListener('input', function () { renderTimes(); save(); });
+});
 document.getElementById('chart').addEventListener('input', save);
 
 /* persistence */
@@ -1259,6 +1340,7 @@ function load() {
 load();
 checkHeader();
 renderBilling();
+renderTimes();
 renderLog();
 })();
 </script>
