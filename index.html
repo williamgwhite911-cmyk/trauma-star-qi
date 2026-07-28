@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trauma Star Documentation QI</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
 <style>
 :root {
   --navy: #14263c;
@@ -208,8 +210,9 @@ button.primary:hover { filter: brightness(1.07); }
     <div class="sub">Monroe County Fire Rescue &middot; Critical Care Flight Chart Audit &middot; Medical Necessity + CAMTS + Reimbursement Readiness</div>
   </div>
   <div class="heli">
-    <!-- Drop a photo named helicopter.jpg in this folder and it will appear here automatically. -->
-    <img src="helicopter.jpg" alt="Trauma Star AW139" style="display:none" onload="this.style.display='block'">
+    <!-- Drop a photo named helicopter.jpg in this folder and it will replace the badge automatically. -->
+    <img id="helibadge" src="icon.svg" alt="Trauma Star QI badge" style="height:74px;width:74px;border-radius:50%">
+    <img src="helicopter.jpg" alt="Trauma Star AW139" style="display:none" onload="this.style.display='block';document.getElementById('helibadge').style.display='none'">
   </div>
 </header>
 
