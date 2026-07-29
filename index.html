@@ -268,10 +268,7 @@ button.primary:hover { filter: brightness(1.07); }
           <span class="tg on" id="tg_air" data-group="mode" data-val="air">Air Transport</span>
           <span class="tg" id="tg_ground" data-group="mode" data-val="ground">Ground CCT</span>
         </div>
-        <div class="toggles">
-          <span class="tg" id="tg_vent" data-group="vent" data-val="vent">Ventilated Patient</span>
-          <span class="tg" id="tg_sed" data-group="sed" data-val="sed">Sedated / Intubated / Agitated</span>
-        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Ventilated and sedated status is detected automatically from the chart narrative &mdash; the ventilator and RASS criteria appear only when the chart shows them.</div>
 
         <label style="margin-top:16px">Source Documents &amp; Photos (up to 30)</label>
         <input type="file" id="fileinput" multiple accept=".pdf,image/*" style="display:none">
@@ -683,6 +680,9 @@ function analyze() {
   var text = document.getElementById('chart').value;
   state.analyzed = true;
   state.results = {};
+  /* auto-detect ventilated and sedated status from the narrative — no toggle needed */
+  state.vent = /intubat|extubat|\bett\b|endotracheal|mechanical(ly)?\s+ventilat|\bventilator\b|p\.?\s?peak|p\.?\s?plat|\bvte\b|hamilton/i.test(text);
+  state.sed = state.vent || /\brass\b|sedat(ed|ion)|propofol|precedex|dexmedetomidine|(ketamine|versed|midazolam|fentanyl)\s+(drip|infusion|gtt)|paralyz|rocuronium|vecuronium|agitat/i.test(text);
   CRITERIA.forEach(function (c) {
     if (!applicable(c)) { state.results[c.id] = { status:'na', found:null, inapplicable:true }; return; }
     var r = detect(c, text);
@@ -701,9 +701,6 @@ function analyze() {
       }
     });
   }
-  /* mission-profile sanity: warn when a toggle contradicts the chart */
-  state.ventMismatch = state.vent && !/ventilat|intubat|\bett\b|p\.?\s?peak|p\.?\s?plat|\bpeep\b|fio2|\bvte\b|bipap|cpap|\bvent\b/i.test(text);
-  state.sedMismatch = state.sed && !/\brass\b|sedat|propofol|versed|midazolam|ketamine|precedex|dexmedetomidine|paralyz|rocuronium|vecuronium|agitat|intubat/i.test(text);
   state.langHits = [];
   DENIAL.forEach(function (d) {
     d.rx.lastIndex = 0;
@@ -823,6 +820,8 @@ function render() {
     if (f.rn) crew.push('RN ' + f.rn);
     if (f.medic) crew.push('Medic ' + f.medic);
     if (crew.length) line += ' Crew: ' + crew.join(', ') + '.';
+    if (state.vent) line += ' Ventilated patient (detected from narrative).';
+    else if (state.sed) line += ' Sedation managed (detected from narrative).';
     if (tt.response !== null) line += ' Response time ' + tt.response + ' min.';
     if (tt.ground !== null) line += ' ' + (state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min.';
     line += ' Documentation score ' + s.score + '/100 (' + g[0] + ').';
@@ -850,8 +849,6 @@ function render() {
     if (tt.response !== null && tt.response > 10) improve.push('Response time ' + tt.response + ' min exceeded the 10-minute standard — document the reason for the delay.');
     if (tt.ground !== null && tt.ground > limit2) improve.push((state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min exceeded the ' + limit2 + '-minute standard — document what extended the ground interval.');
     if (!f.icd.trim() || !f.hcpcs || !f.miles.trim()) improve.push('Enter the billing codes in this review (ICD-10, transport code, loaded miles) — these app fields are blank even if the chart documents them.');
-    if (state.ventMismatch) improve.push('Ventilated Patient toggle is on but no ventilator documentation was found — turn the toggle off if the patient was not ventilated.');
-    if (state.sedMismatch) improve.push('Sedated/Intubated/Agitated toggle is on but no sedation documentation was found — turn the toggle off if it does not apply.');
     state.riskHits.filter(function (h) { return h.cat === 'harm'; }).forEach(function (h) {
       improve.push('Risk management referral: ' + h.label.toLowerCase() + '.');
     });
@@ -867,17 +864,6 @@ function render() {
       : '<div style="font-size:13px;color:var(--green);font-weight:600">Nothing outstanding — this chart makes its own case.</div>';
     document.getElementById('summarytext').innerHTML = html;
   })();
-
-  /* mission-profile mismatch warnings */
-  if (state.ventMismatch || state.sedMismatch) {
-    var warn = document.createElement('div');
-    warn.className = 'card';
-    var wtxt = '';
-    if (state.ventMismatch) wtxt += '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">Check the mission profile:</b> the <b>Ventilated Patient</b> toggle is ON, but the chart contains no ventilator documentation. If the patient was not ventilated, turn the toggle off — the ventilator items will be removed and the score recalculated.</div>';
-    if (state.sedMismatch) wtxt += '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">Check the mission profile:</b> the <b>Sedated / Intubated / Agitated</b> toggle is ON, but the chart contains no sedation or RASS documentation. If it does not apply, turn the toggle off.</div>';
-    warn.innerHTML = wtxt;
-    res.appendChild(warn);
-  }
 
   /* criteria by section */
   var sections = [];
@@ -1202,14 +1188,9 @@ function checkHeader() {
 document.querySelectorAll('.tg').forEach(function (el) {
   el.addEventListener('click', function () {
     var group = el.dataset.group, val = el.dataset.val;
-    if (group === 'mission' || group === 'mode') {
-      document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) { e.classList.remove('on'); });
-      el.classList.add('on');
-      state[group] = val;
-    } else {
-      el.classList.toggle('on');
-      state[group === 'vent' ? 'vent' : 'sed'] = el.classList.contains('on');
-    }
+    document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) { e.classList.remove('on'); });
+    el.classList.add('on');
+    state[group] = val;
     renderBilling();
     renderTimes();
     if (state.analyzed) analyze();
@@ -1396,8 +1377,6 @@ function loadFromLog(key) {
       e.classList.toggle('on', e.dataset.val === state[g]);
     });
   });
-  document.getElementById('tg_vent').classList.toggle('on', state.vent);
-  document.getElementById('tg_sed').classList.toggle('on', state.sed);
   state.results = d.results || {};
   state.langHits = d.langHits || [];
   state.riskHits = d.riskHits || [];
@@ -1530,8 +1509,8 @@ function load() {
         e.classList.toggle('on', e.dataset.val === d[g]);
       });
     });
-    if (d.vent) { state.vent = true; document.getElementById('tg_vent').classList.add('on'); }
-    if (d.sed) { state.sed = true; document.getElementById('tg_sed').classList.add('on'); }
+    state.vent = !!d.vent;
+    state.sed = !!d.sed;
     if (d.attachments) { attachments = d.attachments; renderFiles(); }
   } catch (e) {}
 }
