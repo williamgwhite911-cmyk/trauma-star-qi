@@ -258,6 +258,7 @@ button.primary:hover { filter: brightness(1.07); }
           <div><label>Drop-off Location</label><input type="text" id="f_dropoff" placeholder="Receiving facility"></div>
         </div>
         <div id="headerwarn" class="headerwarn"></div>
+        <div id="autofillnote" style="font-size:12px;color:var(--blue);margin-top:4px"></div>
 
         <label style="margin-top:16px">Mission Profile</label>
         <div class="toggles">
@@ -676,9 +677,69 @@ function detect(c, text) {
   return { status:'fail', found:null };
 }
 
+function setToggle(group, val) {
+  state[group] = val;
+  document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) {
+    e.classList.toggle('on', e.dataset.val === val);
+  });
+}
+
+/* Pull demographics from the chart into any header field the reviewer left blank.
+   Never overwrites a field that already has a value. */
+function autofillFromChart(text) {
+  var filled = [];
+  function fill(id, val, label) {
+    var el = document.getElementById(id);
+    if (el && !el.value.trim() && val) { el.value = String(val).trim(); filled.push(label); }
+  }
+  var m;
+  var ocaRe = /oca[#:\s-]*([a-z0-9][a-z0-9-]{1,15})/gi, om;
+  while ((om = ocaRe.exec(text))) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(om[1])) { fill('f_oca', om[1], 'OCA'); break; }
+  }
+  m = /(\d{4}-\d{2}-\d{2})/.exec(text);
+  if (m) fill('f_date', m[1], 'date');
+  else { m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text); if (m) fill('f_date', m[3] + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2), 'date'); }
+  m = /trauma\s*star\s*(north|south)/i.exec(text);
+  if (m) {
+    var sel = document.getElementById('f_aircraft');
+    if (!sel.value) { sel.value = 'Trauma Star ' + m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase(); filled.push('aircraft'); }
+  }
+  m = /chief\s+complaint[:\s]+([^\n.;]{3,60})/i.exec(text); if (m) fill('f_cc', m[1], 'chief complaint');
+  var NAME = "([A-Z]\\.(?:\\s?[A-Z][\\w'-]+)+|[A-Z][\\w'-]+(?:\\s[A-Z]\\.?[\\w'-]*){0,2})";
+  m = new RegExp('pilot[:\\s]+' + NAME, 'i').exec(text); if (m) fill('f_pilot', m[1], 'pilot');
+  m = new RegExp('\\b' + NAME + ',\\s*RN\\b').exec(text); if (m) fill('f_rn', m[1] + ', RN', 'nurse');
+  m = new RegExp('\\b' + NAME + ',\\s*(?:Paramedic|EMT-?P|Medic)\\b').exec(text); if (m) fill('f_medic', m[1] + ', Paramedic', 'medic');
+  var PLACE = "([A-Z][\\w'’-]*(?:\\s[A-Z0-9][\\w'’-]*){0,4})";
+  m = new RegExp('from\\s+' + PLACE + '\\s+to\\s+' + PLACE).exec(text);
+  if (m) { fill('f_pickup', m[1], 'pickup'); fill('f_dropoff', m[2], 'dropoff'); }
+  else { m = new RegExp('transport(?:ed)?\\s+to\\s+' + PLACE).exec(text); if (m) fill('f_dropoff', m[1], 'dropoff'); }
+  m = /dispatch[^0-9\n]{0,30}(\d{3,4})\s*\/\s*(\d{3,4})/i.exec(text);
+  if (m) { fill('f_tdisp', m[1], 'dispatch time'); fill('f_tlift', m[2], 'wheels-up time'); }
+  else {
+    m = /dispatch(?:ed)?[^0-9\n]{0,20}at?\s*(\d{3,4})/i.exec(text); if (m) fill('f_tdisp', m[1], 'dispatch time');
+    m = /wheels\s*up[^0-9\n]{0,20}(\d{3,4})/i.exec(text); if (m) fill('f_tlift', m[1], 'wheels-up time');
+  }
+  m = /land[^0-9\n]{0,30}(\d{3,4})\s*\/\s*(\d{3,4})/i.exec(text);
+  if (m) { fill('f_tland', m[1], 'landing time'); fill('f_tdep', m[2], 'departure time'); }
+  m = /(\d+(?:\.\d+)?)\s*(?:loaded\s+)?(?:statute\s+)?miles/i.exec(text); if (m) fill('f_miles', m[1], 'loaded miles');
+  if (/interfacility|\bIFT\b/i.test(text)) {
+    if (state.mission !== 'ift') { setToggle('mission', 'ift'); filled.push('mission: IFT'); }
+  } else if (/scene\s+(call|response|flight)/i.test(text)) {
+    if (state.mission !== 'scene') { setToggle('mission', 'scene'); filled.push('mission: scene call'); }
+  }
+  return filled;
+}
+
 function analyze() {
   var text = document.getElementById('chart').value;
   state.analyzed = true;
+  var filled = autofillFromChart(text);
+  document.getElementById('autofillnote').textContent =
+    filled.length ? 'Auto-filled from chart: ' + filled.join(', ') + '. Verify and correct as needed.' : '';
+  checkHeader();
+  renderBilling();
+  renderTimes();
   state.results = {};
   /* auto-detect ventilated and sedated status from the narrative — no toggle needed */
   state.vent = /intubat|extubat|\bett\b|endotracheal|mechanical(ly)?\s+ventilat|\bventilator\b|p\.?\s?peak|p\.?\s?plat|\bvte\b|hamilton/i.test(text);
