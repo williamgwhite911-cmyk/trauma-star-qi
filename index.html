@@ -420,7 +420,7 @@ var CRITERIA = [
     title:'Clinical Services Not Available at Pickup Location',
     req:'Specify services, treatments, or interventions the patient required that were not available at the pickup location.',
     why:'This is the core of medical necessity. If the chart does not state what the patient needed that the current location could not provide, the reviewer concludes the patient could have stayed, and denies the claim.',
-    rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i] },
+    rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob|comprehensive|primary)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i, /not\s+capable/i, /cannot\s+(provide|manage|perform|treat)/i, /requir(es|ed|ing)[^.\n]{0,50}(neurosurg|cath|thrombectomy|trauma\s+center|stroke\s+center|icu|ecmo|surg|interventional)/i] },
   { id:'cond_ift', sec:'Transport Request & Medical Necessity', w:3, mission:'ift',
     title:'Patient’s Summarized Condition / Diagnosis',
     req:'The diagnosis from the sending facility as reported to the crew.',
@@ -440,7 +440,7 @@ var CRITERIA = [
     title:'HPI Summary',
     req:'Primary symptoms, pertinent history, events leading to illness/injury, and all interventions performed before arrival.',
     why:'The HPI is the narrative that ties every element together for a reviewer who never met the patient. A chart without a focused HPI forces the payer to guess why transport was required, and payers do not guess in your favor.',
-    rx:[/\bhpi\b/i, /history\s+of\s+present\s+illness/i, /(prior\s+to\s+(our\s+)?arrival|pta\b)/i, /events?\s+leading/i] },
+    rx:[/\bhpi\b/i, /history\s+of\s+present\s+illness/i, /(prior\s+to\s+(our\s+|ems\s+)?arrival|\bpta\b)/i, /events?\s+(leading|preceding|prior)/i, /per\s+(bystanders?|family|witnesses|ground\s+(ems|crew)|first\s+responders?)/i, /witnessed\s+(seizure|arrest|collapse|fall|event)/i, /\bhx\b|history\s+of\b/i, /last\s+(known\s+)?(well|normal)/i] },
 
   /* --- Mode justification --- */
   { id:'mode', sec:'Mode of Transport Justification', w:5,
@@ -452,12 +452,12 @@ var CRITERIA = [
     title:'Ground Transport Time in Minutes',
     req:'Ground time in minutes per Google Maps, plus factors that would extend it (weather, traffic, road conditions).',
     why:'"Ground transport time approximately 92 minutes versus 24 minutes by air" is objective and reviewable. Without the number in minutes, the air-versus-ground comparison cannot be evaluated and the mode justification fails.',
-    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i] },
+    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i, /ground[^.\n]{0,60}?\d+\s*(min|minute|hour|hr)/i, /\d+\s*(min|minute|hour|hr)[^.\n]{0,50}ground/i, /ground\s+eta/i, /eta\s+(by\s+)?ground/i, /ground\s+would\s+take/i] },
   { id:'airconsider', sec:'Mode of Transport Justification', w:3, mode:'air',
     title:'Air-over-Ground Considerations',
     req:'Factors guiding air over ground: patient stability, limited community resources, no ALS available, geographic constraints, crew capabilities.',
     why:'If air is chosen, the record must show the factors that made ground inadequate: resources, geography, or crew capability. This is the difference between a justified air transport and one that could have gone by ground BLS.',
-    rx:[/no\s+als\s+(ambulance|unit)/i, /first\s+responder\s+only/i, /ground\s+ems\s+limitation/i, /crew\s+capabilit/i, /(geograph|access)\s+constraint/i, /(versus|vs\.?)\s+\d+\s*min/i, /by\s+air\b/i] },
+    rx:[/no\s+als\s+(ambulance|unit)/i, /first\s+responder\s+only/i, /ground\s+ems\s+limitation/i, /crew\s+capabilit/i, /(geograph|access)\s+constraint/i, /(versus|vs\.?)\s+\d+\s*min/i, /by\s+air\b/i, /(time\s+saving|faster|quicker|shorter)[^.\n]{0,40}(air|flight|flying)/i, /(air|flight|flying)[^.\n]{0,40}(faster|quicker|shorter|time\s+saving)/i, /flight\s+time[^.\n]{0,25}\d+/i, /air\s+(transport\s+)?(indicated|necessary|required|justified|chosen|selected)/i, /(traffic|bridge|island|keys|us-?1|single\s+route|road\s+closure)/i] },
   { id:'groundreason', sec:'Mode of Transport Justification', w:3, mode:'ground',
     title:'Ground-instead-of-Air Reasons',
     req:'Why ground was used instead of air: weather preventing safe flight, distance, patient stability, crew capabilities.',
@@ -474,7 +474,7 @@ var CRITERIA = [
     title:'Bypassed Facilities Explanation (Scene Calls)',
     req:'If a closer facility was bypassed: divert status, lacked specialty services, would not accept, unable to land, or patient advised of mileage responsibility.',
     why:'On a scene call the crew chooses the destination, so the crew must justify it. Flying past a closer facility without a documented reason is one of the most common causes of denial. This applies to scene calls only, never IFTs.',
-    rx:[/bypass/i, /closest\s+(appropriate\s+)?facility/i, /on\s+divert/i, /would\s+not\s+accept/i, /unable\s+to\s+(land|fly)/i] },
+    rx:[/by-?pass|bi-?pass/i, /closest\s+(appropriate\s+)?(facility|hospital|trauma\s+center|stroke\s+center)/i, /nearest\s+(facility|hospital|trauma|stroke)/i, /on\s+divert/i, /would\s+not\s+accept/i, /unable\s+to\s+(land|fly)/i, /(flew|flown|fly)\s+past/i, /no\s+(comprehensive|primary)\s+stroke\s+center/i, /destination\s+criteria/i] },
   { id:'sendaccept', sec:'Destination', w:5, mission:'ift',
     title:'Sending + Accepting Facility and Providers (IFT)',
     req:'Sending facility and provider, accepting facility and accepting provider, and the receiving capability the sending facility lacks.',
@@ -486,7 +486,7 @@ var CRITERIA = [
     title:'Medications / Infusions Prior to Assessment',
     req:'All current infusions and medications documented in the Medication/Infusions Prior to Assessment section.',
     why:'The infusions running before your assessment are part of the proof that the patient required care beyond paramedic scope. They also close the loop between the sending facility’s treatment and yours.',
-    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i] },
+    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i, /no\s+(meds|medications|infusions)\s+(prior|running|given|administered)?/i, /med(ication)?s?\s+(given|administered|received)\s+(prior|by\s+(ground|ems|first\s+responders))/i, /home\s+med(ication)?s/i, /medications?\s*:/i] },
   { id:'labs', sec:'Clinical Record', w:3, mission:'ift',
     title:'Labs and Imaging Results',
     req:'Diagnostic results from the sending facility, including results that are pending or unknown. Interfacility transports only; scene calls have no labs or imaging.',
@@ -689,6 +689,21 @@ function analyze() {
     r.auto = r.status;
     state.results[c.id] = r;
   });
+  /* the chief complaint entered in the review header satisfies the condition element */
+  var ccVal = document.getElementById('f_cc').value.trim();
+  if (ccVal) {
+    ['cond_scene', 'cond_ift'].forEach(function (id) {
+      var r = state.results[id];
+      if (r && !r.inapplicable && r.status === 'fail') {
+        r.status = 'pass';
+        r.auto = 'pass';
+        r.found = 'Chief complaint documented in the review header: "' + ccVal + '"';
+      }
+    });
+  }
+  /* mission-profile sanity: warn when a toggle contradicts the chart */
+  state.ventMismatch = state.vent && !/ventilat|intubat|\bett\b|p\.?\s?peak|p\.?\s?plat|\bpeep\b|fio2|\bvte\b|bipap|cpap|\bvent\b/i.test(text);
+  state.sedMismatch = state.sed && !/\brass\b|sedat|propofol|versed|midazolam|ketamine|precedex|dexmedetomidine|paralyz|rocuronium|vecuronium|agitat|intubat/i.test(text);
   state.langHits = [];
   DENIAL.forEach(function (d) {
     d.rx.lastIndex = 0;
@@ -834,7 +849,9 @@ function render() {
     if (state.langHits.length) improve.push('Replace denial language (' + state.langHits.map(function (h) { return h.word; }).join(', ') + ') with active-management wording.');
     if (tt.response !== null && tt.response > 10) improve.push('Response time ' + tt.response + ' min exceeded the 10-minute standard — document the reason for the delay.');
     if (tt.ground !== null && tt.ground > limit2) improve.push((state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min exceeded the ' + limit2 + '-minute standard — document what extended the ground interval.');
-    if (!f.icd.trim() || !f.hcpcs || !f.miles.trim()) improve.push('Complete the billing coding (ICD-10, transport code, loaded miles) before the claim is submitted.');
+    if (!f.icd.trim() || !f.hcpcs || !f.miles.trim()) improve.push('Enter the billing codes in this review (ICD-10, transport code, loaded miles) — these app fields are blank even if the chart documents them.');
+    if (state.ventMismatch) improve.push('Ventilated Patient toggle is on but no ventilator documentation was found — turn the toggle off if the patient was not ventilated.');
+    if (state.sedMismatch) improve.push('Sedated/Intubated/Agitated toggle is on but no sedation documentation was found — turn the toggle off if it does not apply.');
     state.riskHits.filter(function (h) { return h.cat === 'harm'; }).forEach(function (h) {
       improve.push('Risk management referral: ' + h.label.toLowerCase() + '.');
     });
@@ -851,19 +868,30 @@ function render() {
     document.getElementById('summarytext').innerHTML = html;
   })();
 
+  /* mission-profile mismatch warnings */
+  if (state.ventMismatch || state.sedMismatch) {
+    var warn = document.createElement('div');
+    warn.className = 'card';
+    var wtxt = '';
+    if (state.ventMismatch) wtxt += '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">Check the mission profile:</b> the <b>Ventilated Patient</b> toggle is ON, but the chart contains no ventilator documentation. If the patient was not ventilated, turn the toggle off — the ventilator items will be removed and the score recalculated.</div>';
+    if (state.sedMismatch) wtxt += '<div class="flag" style="background:var(--amber-bg);border-color:#eeda9e"><b style="color:var(--amber)">Check the mission profile:</b> the <b>Sedated / Intubated / Agitated</b> toggle is ON, but the chart contains no sedation or RASS documentation. If it does not apply, turn the toggle off.</div>';
+    warn.innerHTML = wtxt;
+    res.appendChild(warn);
+  }
+
   /* criteria by section */
   var sections = [];
   CRITERIA.forEach(function (c) { if (sections.indexOf(c.sec) < 0) sections.push(c.sec); });
   sections.forEach(function (sec) {
     var cards = CRITERIA.filter(function (c) { return c.sec === sec; });
-    var visible = cards.filter(function (c) { return state.results[c.id]; });
+    var visible = cards.filter(function (c) { return state.results[c.id] && !state.results[c.id].inapplicable; });
     if (!visible.length) return;
     var div = document.createElement('div');
     div.className = 'sec';
     div.innerHTML = '<h3>' + esc(sec) + '</h3>';
     cards.forEach(function (c) {
       var r = state.results[c.id];
-      if (!r) return;
+      if (!r || r.inapplicable) return;
       var card = document.createElement('div');
       card.className = 'crit ' + r.status;
       var mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : r.status === 'na' ? '–' : '?';
