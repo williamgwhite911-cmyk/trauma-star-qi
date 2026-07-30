@@ -266,8 +266,7 @@ button.primary:hover { filter: brightness(1.07); }
           <span class="tg on" id="tg_ift" data-group="mission" data-val="ift">Interfacility (IFT)</span>
         </div>
         <div class="toggles">
-          <span class="tg on" id="tg_air" data-group="mode" data-val="air">Air Transport</span>
-          <span class="tg" id="tg_ground" data-group="mode" data-val="ground">Ground CCT</span>
+          <span class="tg on" style="cursor:default" title="This is an air medical chart; mode is always air">Air Transport (always)</span>
         </div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Ventilated and sedated status is detected automatically from the chart narrative &mdash; the ventilator and RASS criteria appear only when the chart shows them.</div>
 
@@ -295,6 +294,7 @@ button.primary:hover { filter: brightness(1.07); }
 
       <div class="card">
         <h2>Billing &mdash; ICD-10 &amp; Transport Codes</h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Completed by the QI reviewer or billing office, not the crew. This section never affects the documentation score.</div>
         <div class="row2">
           <div>
             <label>Primary ICD-10</label>
@@ -394,11 +394,16 @@ window.addEventListener('error', function (e) {
    applies: mission scene|ift|all, mode air|ground|all, vent, sed */
 var CRITERIA = [
   /* --- Transport request & medical necessity --- */
-  { id:'agency', sec:'Transport Request & Medical Necessity', w:3,
+  { id:'agency_ift', sec:'Transport Request & Medical Necessity', w:3, mission:'ift',
     title:'Requesting Agency',
-    req:'The organization that initiated the request for transport.',
+    req:'The sending organization that initiated the request for medical transport.',
     why:'The payer must see who initiated the request. Without a documented requesting agency, the reviewer cannot establish that the transport originated from a legitimate medical request, and the claim starts from a position of doubt.',
-    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(sending|referring)\s+(agency|facility)/i, /dispatch(ed)?\s+(by|per|from)/i] },
+    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(sending|referring)\s+(agency|facility|hospital)/i, /dispatch(ed)?\s+(by|per|from)/i] },
+  { id:'agency_scene', sec:'Transport Request & Medical Necessity', w:3, mission:'scene',
+    title:'Requesting Agency (Ground Unit)',
+    req:'The ground unit or agency that requested the aircraft: Rescue, Medic, Engine, fire rescue, county EMS.',
+    why:'On a scene call the requesting agency is the ground EMS unit. Naming the unit (Rescue 12, Medic 5, MCFR) establishes that the request came from a responding public-safety agency, which is the origin of medical necessity for a 911 flight.',
+    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(rescue|medic|engine|ladder|squad|truck|battalion|station)\s*\d+/i, /fire\s+rescue/i, /\bmcfr\b/i, /county\s+(ems|fire)/i, /dispatch(ed)?\s+(by|per|from|to)/i, /ground\s+(crew|unit|ems)/i] },
   { id:'prov_ift', sec:'Transport Request & Medical Necessity', w:3, mission:'ift',
     title:'Requesting Provider (name + licensure)',
     req:'Full name and licensure (MD, DO, PA, NP) of the sending provider who requested transport.',
@@ -423,12 +428,12 @@ var CRITERIA = [
     title:'Patient’s Summarized Condition / Diagnosis',
     req:'The diagnosis from the sending facility as reported to the crew.',
     why:'The reviewer was not on the aircraft. The sending facility’s diagnosis is the frame for every other element of the chart. Without it, nothing else in the record has clinical context.',
-    rx:[/diagnos[ie]s/i, /presents?\s+with/i, /found\s+(to\s+be|with)/i, /reported\s+(to\s+have|that)/i, /working\s+dx/i, /\bdx\b/i] },
+    rx:[/diagnos[ie]s/i, /suspected/i, /chief\s+complaint/i, /presents?\s+with/i, /found\s+(to\s+be|with)/i, /reported\s+(to\s+have|that)/i, /working\s+dx/i, /\bdx\b/i] },
   { id:'cond_scene', sec:'Transport Request & Medical Necessity', w:3, mission:'scene',
-    title:'Chief Complaint and Reason Called',
-    req:'There is no diagnosis on a scene call. Document the chief complaint, why the aircraft was requested, and the working impression from what was found.',
-    why:'On a scene call there are no labs or a diagnosis to lean on. The chief complaint and the reason the aircraft was called are the entire clinical frame a payer reviews. A scene chart that never states why the helicopter was requested cannot establish medical necessity.',
-    rx:[/chief\s+complaint/i, /\bc\/o\b/i, /(called|dispatched|requested)\s+(for|to)/i, /working\s+(diagnosis|impression)/i, /found\s+(supine|prone|unresponsive|unconscious|conscious|alert|seated|ambulatory|with)/i, /complain(s|ing|t)/i, /upon\s+arrival/i] },
+    title:'Chief Complaint / Suspected Condition',
+    req:'The chief complaint, suspected condition, or working impression, and why the aircraft was requested. Diagnosis, chief complaint, and "suspected" wording all count.',
+    why:'On a scene call the chief complaint and the reason the aircraft was called are the clinical frame a payer reviews. A scene chart that never states why the helicopter was requested cannot establish medical necessity.',
+    rx:[/chief\s+complaint/i, /suspected/i, /diagnos/i, /\bc\/o\b/i, /(called|dispatched|requested)\s+(for|to)/i, /working\s+(diagnosis|impression)/i, /found\s+(supine|prone|unresponsive|unconscious|conscious|alert|seated|ambulatory|with)/i, /complain(s|ing|t)/i, /upon\s+arrival/i] },
   { id:'timedep', sec:'Transport Request & Medical Necessity', w:5,
     title:'Time-Dependent Illness Identified',
     req:'Conditions requiring prompt intervention: stroke, STEMI, trauma with internal bleeding, severe respiratory distress.',
@@ -440,27 +445,17 @@ var CRITERIA = [
     why:'The HPI is the narrative that ties every element together for a reviewer who never met the patient. A chart without a focused HPI forces the payer to guess why transport was required, and payers do not guess in your favor.',
     rx:[/\bhpi\b/i, /history\s+of\s+present\s+illness/i, /(prior\s+to\s+(our\s+|ems\s+)?arrival|\bpta\b)/i, /events?\s+(leading|preceding|prior)/i, /per\s+(bystanders?|family|witnesses|ground\s+(ems|crew)|first\s+responders?)/i, /witnessed\s+(seizure|arrest|collapse|fall|event)/i, /\bhx\b|history\s+of\b/i, /last\s+(known\s+)?(well|normal)/i] },
 
-  /* --- Mode justification --- */
-  { id:'mode', sec:'Mode of Transport Justification', w:5,
-    title:'Mode of Transport Explained',
-    req:'Why rotor, fixed-wing, or critical care ground was chosen for this patient: severity, personnel needs, distance, logistics.',
-    why:'The payer requires the record to state why this mode was required for this specific patient. A chart that never explains the mode choice is read as a convenience flight and denied.',
-    rx:[/mode\s+of\s+transport/i, /(rotor|helicopter|air\s+transport|fixed.?wing)\s+.{0,40}(chosen|selected|required|indicated|necessary)/i, /required\s+(air|rotor|helicopter)/i] },
-  { id:'groundtime', sec:'Mode of Transport Justification', w:5,
-    title:'Ground Transport Time in Minutes',
-    req:'Ground time in minutes per Google Maps, plus factors that would extend it (weather, traffic, road conditions).',
-    why:'"Ground transport time approximately 92 minutes versus 24 minutes by air" is objective and reviewable. Without the number in minutes, the air-versus-ground comparison cannot be evaluated and the mode justification fails.',
-    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i, /ground[^.\n]{0,60}?\d+\s*(min|minute|hour|hr)/i, /\d+\s*(min|minute|hour|hr)[^.\n]{0,50}ground/i, /ground\s+eta/i, /eta\s+(by\s+)?ground/i, /ground\s+would\s+take/i] },
-  { id:'airconsider', sec:'Mode of Transport Justification', w:3, mode:'air',
-    title:'Air-over-Ground Considerations',
-    req:'Factors guiding air over ground: patient stability, limited community resources, no ALS available, geographic constraints, crew capabilities.',
-    why:'If air is chosen, the record must show the factors that made ground inadequate: resources, geography, or crew capability. This is the difference between a justified air transport and one that could have gone by ground BLS.',
-    rx:[/no\s+als\s+(ambulance|unit)/i, /first\s+responder\s+only/i, /ground\s+ems\s+limitation/i, /crew\s+capabilit/i, /(geograph|access)\s+constraint/i, /(versus|vs\.?)\s+\d+\s*min/i, /by\s+air\b/i, /(time\s+saving|faster|quicker|shorter)[^.\n]{0,40}(air|flight|flying)/i, /(air|flight|flying)[^.\n]{0,40}(faster|quicker|shorter|time\s+saving)/i, /flight\s+time[^.\n]{0,25}\d+/i, /air\s+(transport\s+)?(indicated|necessary|required|justified|chosen|selected)/i, /(traffic|bridge|island|keys|us-?1|single\s+route|road\s+closure)/i] },
-  { id:'groundreason', sec:'Mode of Transport Justification', w:3, mode:'ground',
-    title:'Ground-instead-of-Air Reasons',
-    req:'Why ground was used instead of air: weather preventing safe flight, distance, patient stability, crew capabilities.',
-    why:'When ground is chosen, the same rule applies in reverse. The record must state why flight was not used, or the level of service billed cannot be supported.',
-    rx:[/weather\s+(preclud|prevent)/i, /unable\s+to\s+fly/i, /short\s+distance/i, /ground\s+(chosen|selected|utilized)/i] },
+  /* --- Air transport justification (this is an air medical chart; mode is always air) --- */
+  { id:'airjust', sec:'Air Transport Justification', w:5,
+    title:'Air-over-Ground Justification',
+    req:'Why this patient required air transport: time savings tied to the condition, limited ground resources, geographic constraints, or crew capabilities exceeding ground providers.',
+    why:'The payer requires the record to show the factors that made ground inadequate for this specific patient: time, resources, geography, or crew capability. A chart that never makes the air-over-ground case is read as a convenience flight and denied.',
+    rx:[/mode\s+of\s+transport/i, /(rotor|helicopter|air\s+transport|air\s+medical|fixed.?wing)[^.\n]{0,50}(chosen|selected|required|indicated|necessary|requested|utilized|activated|justified|launched)/i, /required\s+(air|rotor|helicopter)/i, /no\s+als\s+(ambulance|unit)/i, /first\s+responder\s+only/i, /ground\s+ems\s+limitation/i, /crew\s+capabilit/i, /(geograph|access)\s+constraint/i, /(versus|vs\.?)[^.\n]{0,15}\d+\s*(min|hour|hr)/i, /(time\s+saving|faster|quicker|shorter)[^.\n]{0,40}(air|flight|flying)/i, /(air|flight|flying)[^.\n]{0,40}(faster|quicker|shorter|time\s+saving)/i, /flight\s+time[^.\n]{0,25}\d+/i, /(longer|prolonged|extended)[^.\n]{0,30}ground/i, /ground[^.\n]{0,40}(longer|prolonged|extended|delay)/i, /(expedite|rapid\s+transport|decreas\w*\s+transport\s+time|reduc\w*\s+(transport|out.?of.?hospital)\s+time)/i, /distance\s+to\s+(the\s+)?(closest|nearest|receiving|appropriate)/i, /(traffic|bridge|island|keys|us-?1|single\s+route|road\s+closure)/i] },
+  { id:'groundtime', sec:'Air Transport Justification', w:5,
+    title:'Ground Transport Time Documented',
+    req:'Estimated ground time in minutes, or hours and minutes, plus factors that would extend it (weather, traffic, road conditions).',
+    why:'"Ground transport time approximately 92 minutes versus 24 minutes by air" is objective and reviewable. Without a time figure, the air-versus-ground comparison cannot be evaluated and the justification weakens.',
+    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i, /ground[^.\n]{0,60}?\d+\s*(min|minute|hour|hr)/i, /\d+\s*(min|minute|hour|hr)s?[^.\n]{0,50}ground/i, /\d+\s*h(ou)?rs?\s*(and\s+)?\d+\s*min/i, /ground\s+eta/i, /eta\s+(by\s+)?ground/i, /ground\s+would\s+take/i, /transport\s+time[^.\n]{0,30}\d+\s*(min|hour|hr)/i] },
 
   /* --- Destination --- */
   { id:'destination', sec:'Destination', w:5,
@@ -480,17 +475,22 @@ var CRITERIA = [
     rx:[/accepting\s+(physician|provider|md|facility)/i, /sending\s+(physician|provider|facility)/i, /transfer(red)?\s+(to|from)/i, /physician.to.physician/i] },
 
   /* --- Clinical record --- */
-  { id:'meds', sec:'Clinical Record', w:3,
+  { id:'meds_ift', sec:'Clinical Record', w:3, mission:'ift',
     title:'Medications / Infusions Prior to Assessment',
-    req:'All current infusions and medications documented in the Medication/Infusions Prior to Assessment section.',
+    req:'All current infusions and medications from the sending facility documented in the Medication/Infusions Prior to Assessment section.',
     why:'The infusions running before your assessment are part of the proof that the patient required care beyond paramedic scope. They also close the loop between the sending facility’s treatment and yours.',
-    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i, /no\s+(meds|medications|infusions)\s+(prior|running|given|administered)?/i, /med(ication)?s?\s+(given|administered|received)\s+(prior|by\s+(ground|ems|first\s+responders))/i, /home\s+med(ication)?s/i, /medications?\s*:/i] },
+    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i, /no\s+(meds|medications|infusions)\s+(prior|running|given|administered)?/i, /med(ication)?s?\s+(given|administered|received)\s+(prior|by)/i, /home\s+med(ication)?s/i, /medications?\s*:/i] },
+  { id:'meds_scene', sec:'Clinical Record', w:3, mission:'scene',
+    title:'Medications Given Prior to Flight',
+    req:'Any medications given by ground crews or first responders before the flight, or a note that none were given. There is no infusion list on a scene call.',
+    why:'On a scene call the only prior medications are what ground EMS or first responders gave. Documenting them, or documenting "none given," closes the loop between ground treatment and flight treatment so nothing is double-dosed or missed.',
+    rx:[/med(ication)?s?\s+(given|administered|received)\s+(by\s+(ground|ems|rescue|fire|first\s+responders)|prior|on\s+scene)/i, /no\s+med(ication)?s?\s+(given|administered|prior)/i, /prior\s+to\s+(our\s+|ems\s+|flight\s+)?arrival/i, /(ground|rescue|first\s+responders?)[^.\n]{0,40}(gave|administered|placed)/i, /\bpta\b/i] },
   { id:'labs', sec:'Clinical Record', w:3, mission:'ift',
     title:'Labs and Imaging Results',
     req:'Diagnostic results from the sending facility, including results that are pending or unknown. Interfacility transports only; scene calls have no labs or imaging.',
     why:'Labs and imaging are the objective backbone of the sending diagnosis. "Pending" and "unknown" are acceptable entries; a blank is not. A critical care team analyzes labs, imaging, and findings to build the real case for transport.',
     rx:[/\blabs?\b/i, /imaging/i, /\bct\b/i, /x.?ray/i, /\bmri\b/i, /lactate|troponin|wbc|hgb|hemoglobin|inr|creatinine/i, /pending|unknown/i] },
-  { id:'serial', sec:'Clinical Record', w:5,
+  { id:'serial', sec:'Clinical Record', w:5, mission:'ift',
     title:'Serial Assessments and Vitals',
     req:'Reassessments and vitals documented throughout patient contact, with times. One set is a snapshot, not a transport record.',
     why:'Continuous monitoring for the entire patient contact time is the defining feature of critical care transport. A gap in documented assessments looks like a gap in care to a reviewer, and a single set of vitals means little without a trend.',
@@ -505,7 +505,7 @@ var CRITERIA = [
     title:'Hypoxia Addressed with Intervention',
     req:'If hypoxia or desaturation is noted anywhere in the chart, a corresponding intervention (oxygen titration, airway maneuver, suction, PEEP/FiO2 change, BVM, intubation) and the patient response must be documented.',
     why:'A documented problem with no documented response is the most damaging kind of charting. If SpO2 falls and the record shows no oxygen titration, airway maneuver, or ventilator change, the reviewer reads either unmonitored deterioration or undocumented care. Every noted hypoxic episode must be paired with the intervention that addressed it and the reassessment showing the result.',
-    special:'conditional',
+    special:'conditional', trigLabel:'Hypoxia', respLabel:'intervention',
     naText:'No hypoxia or desaturation documented in this chart — check not applicable.',
     trig:[/hypox(ia|ic|emia)/i, /desaturat/i, /spo2\s*(of|at|dropped\s*(to)?|fell\s*(to)?|down\s*(to)?)?\s*[:=]?\s*[0-8]\d\b/i, /sats?\s+(dropped|fell|of|at)\s*(to)?\s*[0-8]\d\b/i],
     rx:[/(increased|titrated|placed|applied|administered|started)\s+(on\s+)?(fio2|o2|oxygen|nrb|high.?flow)/i, /(fio2|o2|oxygen)\s+(increased|titrated|weaned|applied|administered|to\s+\d)/i, /non.?rebreather|\bnrb\b|nasal\s+cannula|high.?flow/i, /\bbvm\b|bag(ged|ging)/i, /intubat/i, /peep\s+(increased|titrated|to\s+\d)/i, /suction(ed|ing)?/i, /reposition(ed|ing)?|jaw\s+thrust|head.?tilt|airway\s+(opened|repositioned|maneuver)/i, /cpap|bipap/i, /recruitment\s+maneuver/i] },
@@ -520,7 +520,7 @@ var CRITERIA = [
     title:'Cabin Temperature',
     req:'Aircraft cabin temperature documented on every transport.',
     why:'CAMTS requirement. Cabin temperature changes quickly with altitude, airflow, ramp heat, and rotor wash. Documenting it shows the crew recognized the environment the patient was exposed to and controlled it, which matters most for neonates, burns, trauma, sepsis, post-ROSC, and patients who cannot shiver or report cold.',
-    rx:[/cabin\s+temp/i] },
+    rx:[/cabin\s+temp/i, /(aircraft|cabin)\s+(temp|temperature|climate)/i, /cabin[^.\n]{0,25}\d{2}/i, /climate.?controlled/i, /temperature.?controlled\s+(cabin|environment|aircraft)/i] },
   { id:'glucose', sec:'CAMTS Required on Every Patient', w:3,
     title:'Blood Glucose',
     req:'A glucose on every patient, not only diabetics or altered patients. Recheck after treatment and on longer transports.',
@@ -563,10 +563,13 @@ var CRITERIA = [
     why:'"RASS +2, fentanyl increased to 150 mcg/hr, RASS -1 on reassessment" justifies the drip and shows the reassessment loop. Sedation managed to a documented target is a hallmark critical care activity; sedation that is not documented cannot be shown to have been monitored.',
     rx:[/rass\s*[-+]?\s*\d/i] },
   { id:'pain', sec:'Sedation & Pain', w:3,
-    title:'Pain Level, Serially Reassessed',
-    req:'Pain 0-10 (or nonverbal scale) at initial assessment, after every analgesic, and at handoff.',
-    why:'Pain reassessed after treatment is a hallmark critical care activity for payers and a required element of ongoing assessment for CAMTS and QA. An analgesic with no documented reassessment is an intervention with no documented effect.',
-    rx:[/pain\s*(level|score|scale)?\s*[:=]?\s*\d+\s*(\/|of|out\s+of)?\s*10?/i, /\bflacc\b/i, /nonverbal\s+(pain\s+)?scale/i] }
+    title:'Pain Score Documented (when pain or analgesia is charted)',
+    req:'If pain or an analgesic appears in the narrative, a numeric pain score (0-10 or nonverbal scale) must be documented, with reassessment after treatment.',
+    why:'When the chart mentions pain or gives an analgesic, a numeric score and reassessment must follow. An analgesic with no documented score or reassessment is an intervention with no documented effect. Charts with no pain complaint and no analgesic are not scored on this item.',
+    special:'conditional', trigLabel:'Pain / analgesia', respLabel:'numeric pain score',
+    naText:'No pain complaint or analgesic documented in this chart — not applicable.',
+    trig:[/\bpain(ful)?\b/i, /\bc\/o\b[^.\n]{0,30}(pain|hurt)/i, /fentanyl|morphine|dilaudid|hydromorphone|ketorolac|toradol|analgesi/i],
+    rx:[/pain\s*(level|score|scale)?\s*[:=]?\s*\d+\s*(\/|of|out\s+of)?\s*10?/i, /\bflacc\b/i, /nonverbal\s+(pain\s+)?scale/i, /pain\s+(free|resolved|improved\s+to\s+\d)/i] }
 ];
 
 /* Denial language */
@@ -655,7 +658,7 @@ function detect(c, text) {
     if (!trigMatch) return { status:'na', found:null };
     for (var u = 0; u < c.rx.length; u++) {
       var um = c.rx[u].exec(text);
-      if (um) return { status:'pass', found:'Hypoxia noted (“' + snippet(text, trigMatch) + '”) and intervention documented: “' + snippet(text, um) + '”' };
+      if (um) return { status:'pass', found:(c.trigLabel || 'Condition') + ' noted (“' + snippet(text, trigMatch) + '”) and ' + (c.respLabel || 'response') + ' documented: “' + snippet(text, um) + '”' };
     }
     return { status:'fail', found:null };
   }
@@ -743,7 +746,7 @@ function analyze() {
   state.results = {};
   /* auto-detect ventilated and sedated status from the narrative — no toggle needed */
   state.vent = /intubat|extubat|\bett\b|endotracheal|mechanical(ly)?\s+ventilat|\bventilator\b|p\.?\s?peak|p\.?\s?plat|\bvte\b|hamilton/i.test(text);
-  state.sed = state.vent || /\brass\b|sedat(ed|ion)|propofol|precedex|dexmedetomidine|(ketamine|versed|midazolam|fentanyl)\s+(drip|infusion|gtt)|paralyz|rocuronium|vecuronium|agitat/i.test(text);
+  state.sed = state.vent || /\brass\b|propofol|precedex|dexmedetomidine|(ketamine|versed|midazolam|fentanyl)\s+(drip|infusion|gtt)|paralyz|rocuronium|vecuronium|sedation\s+(maintained|titrated|managed)/i.test(text);
   CRITERIA.forEach(function (c) {
     if (!applicable(c)) { state.results[c.id] = { status:'na', found:null, inapplicable:true }; return; }
     var r = detect(c, text);
@@ -869,7 +872,7 @@ function render() {
     var sc = document.getElementById('summarycard');
     sc.style.display = 'block';
     var missionDesc = (state.mission === 'scene' ? 'Scene call' : 'Interfacility transport') +
-      (state.mode === 'air' ? (f.aircraft ? ' aboard ' + f.aircraft : ' by air') : ' by ground CCT');
+      (f.aircraft ? ' aboard ' + f.aircraft : ' by air');
     var line = missionDesc;
     if (f.date) line += ' on ' + f.date;
     if (f.oca) line += ' (OCA ' + f.oca + ')';
@@ -883,6 +886,9 @@ function render() {
     if (crew.length) line += ' Crew: ' + crew.join(', ') + '.';
     if (state.vent) line += ' Ventilated patient (detected from narrative).';
     else if (state.sed) line += ' Sedation managed (detected from narrative).';
+    if (state.riskHits.some(function (h) { return h.cat === 'harm'; })) {
+      line += ' Risk Management review flagged; see the Risk Management Screen (alert only, not scored).';
+    }
     if (tt.response !== null) line += ' Response time ' + tt.response + ' min.';
     if (tt.ground !== null) line += ' ' + (state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min.';
     line += ' Documentation score ' + s.score + '/100 (' + g[0] + ').';
@@ -909,10 +915,9 @@ function render() {
     if (state.langHits.length) improve.push('Replace denial language (' + state.langHits.map(function (h) { return h.word; }).join(', ') + ') with active-management wording.');
     if (tt.response !== null && tt.response > 10) improve.push('Response time ' + tt.response + ' min exceeded the 10-minute standard — document the reason for the delay.');
     if (tt.ground !== null && tt.ground > limit2) improve.push((state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min exceeded the ' + limit2 + '-minute standard — document what extended the ground interval.');
-    if (!f.icd.trim() || !f.hcpcs || !f.miles.trim()) improve.push('Enter the billing codes in this review (ICD-10, transport code, loaded miles) — these app fields are blank even if the chart documents them.');
-    state.riskHits.filter(function (h) { return h.cat === 'harm'; }).forEach(function (h) {
-      improve.push('Risk management referral: ' + h.label.toLowerCase() + '.');
-    });
+    /* Billing coding is a QI/billing-office task, not a crew documentation deficit; it never affects the score or this list. */
+    /* Risk management findings are an alert for review, not a documentation deficit;
+       they appear in the Risk Management Screen card and as a neutral note in the summary line. */
 
     var html = '<div style="font-size:13.5px;margin-bottom:10px">' + esc(line) + '</div>';
     html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--green);margin-bottom:4px">What the crew did well</div>';
@@ -989,7 +994,7 @@ function renderPrintHeader(s, g) {
     '<td><b>Flight Date</b>' + esc(f.date || '—') + '</td>' +
     '<td><b>OCA #</b>' + esc(f.oca || '—') + '</td>' +
     '<td><b>Aircraft</b>' + esc(f.aircraft || '—') + '</td>' +
-    '<td><b>Mission</b>' + (state.mission === 'scene' ? 'Scene Call' : 'Interfacility') + ' / ' + (state.mode === 'air' ? 'Air' : 'Ground CCT') + '</td></tr><tr>' +
+    '<td><b>Mission</b>' + (state.mission === 'scene' ? 'Scene Call' : 'Interfacility') + ' / Air</td></tr><tr>' +
     '<td><b>Chief Complaint</b>' + esc(f.cc || '—') + '</td>' +
     '<td><b>Crew</b>' + esc('Pilot: ' + (f.pilot || '—') + ' · RN: ' + (f.rn || '—') + ' · Medic: ' + (f.medic || '—')) + '</td>' +
     '<td><b>Route</b>' + esc((f.pickup || '—') + ' → ' + (f.dropoff || '—')) + '</td>' +
@@ -1432,11 +1437,9 @@ function loadFromLog(key) {
     if (el) el.value = d.f[k];
   });
   document.getElementById('chart').value = d.chart || '';
-  state.mission = d.mission; state.mode = d.mode; state.vent = d.vent; state.sed = d.sed;
-  ['mission', 'mode'].forEach(function (g) {
-    document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
-      e.classList.toggle('on', e.dataset.val === state[g]);
-    });
+  state.mission = d.mission; state.mode = 'air'; state.vent = d.vent; state.sed = d.sed;
+  document.querySelectorAll('.tg[data-group=mission]').forEach(function (e) {
+    e.classList.toggle('on', e.dataset.val === state.mission);
   });
   state.results = d.results || {};
   state.langHits = d.langHits || [];
@@ -1563,13 +1566,13 @@ function load() {
       if (el) el.value = d.f[k];
     });
     document.getElementById('chart').value = d.chart || '';
-    ['mission','mode'].forEach(function (g) {
-      if (!d[g]) return;
-      state[g] = d[g];
-      document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
-        e.classList.toggle('on', e.dataset.val === d[g]);
+    if (d.mission) {
+      state.mission = d.mission;
+      document.querySelectorAll('.tg[data-group=mission]').forEach(function (e) {
+        e.classList.toggle('on', e.dataset.val === d.mission);
       });
-    });
+    }
+    state.mode = 'air';
     state.vent = !!d.vent;
     state.sed = !!d.sed;
     if (d.attachments) { attachments = d.attachments; renderFiles(); }
