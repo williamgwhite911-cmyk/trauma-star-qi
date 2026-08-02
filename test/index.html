@@ -80,6 +80,7 @@ textarea { min-height: 220px; resize: vertical; font-size: 13.5px; }
   user-select: none;
 }
 .tg.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+.tg.flag { border-color: var(--red); color: var(--red); background: #fdeaea; }
 button.primary {
   background: var(--blue);
   border: none;
@@ -760,9 +761,15 @@ function analyze() {
   if (!state.intub) missing.push('Intubated Yes or No');
   if (!state.meds) missing.push('Medications Prior to Transport Yes or No');
   var selwarn = document.getElementById('selwarn');
+  ['mission', 'intub', 'meds'].forEach(function (g) {
+    var flag = !state[g];
+    document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
+      e.classList.toggle('flag', flag);
+    });
+  });
   if (missing.length) {
     selwarn.style.display = 'block';
-    selwarn.textContent = 'Select before analyzing: ' + missing.join(' • ');
+    selwarn.textContent = 'REQUIRED — push a button for: ' + missing.join(' • ');
     state.analyzed = false;
     return;
   }
@@ -1283,7 +1290,7 @@ function checkHeader() {
 document.querySelectorAll('.tg').forEach(function (el) {
   el.addEventListener('click', function () {
     var group = el.dataset.group, val = el.dataset.val;
-    document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) { e.classList.remove('on'); });
+    document.querySelectorAll('.tg[data-group=' + group + ']').forEach(function (e) { e.classList.remove('on'); e.classList.remove('flag'); });
     el.classList.add('on');
     state[group] = val;
     renderBilling();
@@ -1596,11 +1603,10 @@ function load() {
       if (el) el.value = d.f[k];
     });
     document.getElementById('chart').value = d.chart || '';
-    if (d.mission) state.mission = d.mission;
+    /* mission, intubated, and meds toggles are deliberately NOT restored between
+       sessions — the reviewer must push each button on every new review; analyze()
+       red-flags any group left unpushed */
     state.mode = 'air';
-    state.intub = d.intub || (typeof d.vent === 'boolean' ? (d.vent ? 'yes' : 'no') : null);
-    state.meds = d.meds || null;
-    reflectToggles();
     if (d.attachments) { attachments = d.attachments; renderFiles(); }
   } catch (e) {}
 }
