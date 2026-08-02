@@ -419,7 +419,7 @@ var CRITERIA = [
     req:'The receiving physician, nurse, or both who accepted the patient report at the destination.',
     why:'On a scene call there is no accepting-physician transfer agreement, so the documented receiving physician or nurse is the record of who took over care. Paired with the timed radio report, it proves the receiving facility was notified, activated resources, and accepted the patient.',
     rx:[/receiving\s+(physician|provider|md|nurse|rn|staff)/i, /report\s+(given|provided|called)\s+to/i, /care\s+transferred\s+to/i, /hand(ed)?.?off\s+to/i, /accept(ing|ed)\s+(physician|nurse|rn|md)/i] },
-  { id:'services', sec:'Transport Request & Medical Necessity', w:5,
+  { id:'services', sec:'Transport Request & Medical Necessity', w:5, mission:'ift',
     title:'Clinical Services Not Available at Pickup Location',
     req:'Specify services, treatments, or interventions the patient required that were not available at the pickup location.',
     why:'This is the core of medical necessity. If the chart does not state what the patient needed that the current location could not provide, the reviewer concludes the patient could have stayed, and denies the claim.',
