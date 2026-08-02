@@ -260,15 +260,25 @@ button.primary:hover { filter: brightness(1.07); }
         <div id="headerwarn" class="headerwarn"></div>
         <div id="autofillnote" style="font-size:12px;color:var(--blue);margin-top:4px"></div>
 
-        <label style="margin-top:16px">Mission Profile</label>
+        <label style="margin-top:16px">Mission Profile <span style="color:var(--red)">*</span></label>
         <div class="toggles">
           <span class="tg" id="tg_scene" data-group="mission" data-val="scene">Scene Call</span>
-          <span class="tg on" id="tg_ift" data-group="mission" data-val="ift">Interfacility (IFT)</span>
+          <span class="tg" id="tg_ift" data-group="mission" data-val="ift">Interfacility (IFT)</span>
         </div>
         <div class="toggles">
           <span class="tg on" style="cursor:default" title="This is an air medical chart; mode is always air">Air Transport (always)</span>
         </div>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Ventilated and sedated status is detected automatically from the chart narrative &mdash; the ventilator and RASS criteria appear only when the chart shows them.</div>
+        <label style="margin-top:12px">Intubated <span style="color:var(--red)">*</span></label>
+        <div class="toggles">
+          <span class="tg" id="tg_intub_yes" data-group="intub" data-val="yes">Yes</span>
+          <span class="tg" id="tg_intub_no" data-group="intub" data-val="no">No</span>
+        </div>
+        <label style="margin-top:12px">Medications Prior to Transport <span style="color:var(--red)">*</span></label>
+        <div class="toggles">
+          <span class="tg" id="tg_meds_yes" data-group="meds" data-val="yes">Yes</span>
+          <span class="tg" id="tg_meds_no" data-group="meds" data-val="no">No</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">All three selections are required before analysis &mdash; nothing defaults. Intubated Yes adds the Hamilton monitoring menus 1&ndash;3 and RASS criteria; No removes them. Medications Yes adds the infusion pump evaluation. Scene calls are never scored on labs and imaging &mdash; those are IFT-only.</div>
 
         <label style="margin-top:16px">Source Documents &amp; Photos (up to 30)</label>
         <input type="file" id="fileinput" multiple accept=".pdf,image/*" style="display:none">
@@ -283,6 +293,7 @@ button.primary:hover { filter: brightness(1.07); }
         <label style="margin-top:16px">Chart Narrative / Documentation</label>
         <textarea id="chart" placeholder="Paste the chart narrative here, or upload the chart PDF above and its text will be extracted into this box automatically. Then press Analyze. The tool scans for each required element, flags denial language, and scores the chart 0-100. Click any item to override the automatic result."></textarea>
         <button class="primary" id="analyze">Analyze Documentation</button>
+        <div id="selwarn" style="display:none;margin-top:8px;padding:9px 12px;border-radius:8px;background:#fdeaea;border:1px solid var(--red);color:var(--red);font-size:13px;font-weight:600"></div>
         <div class="btnrow">
           <button id="savebtn">Save to Log</button>
           <button id="printbtn">Export PDF</button>
@@ -557,11 +568,17 @@ var CRITERIA = [
     rx:[/c\s?stat/i, /compliance/i, /r\s?insp/i, /resistance/i, /rc\s?exp/i, /p\s?0\.1/i], min:2 },
 
   /* --- Sedation & pain --- */
-  { id:'rass', sec:'Sedation & Pain', w:4, sed:true,
+  { id:'rass', sec:'Sedation & Pain', w:4, vent:true,
     title:'Serial RASS Scores with Target',
     req:'RASS at initial contact and serially; target RASS charted (typically -2 to 0); every sedation titration tied to a RASS score.',
     why:'"RASS +2, fentanyl increased to 150 mcg/hr, RASS -1 on reassessment" justifies the drip and shows the reassessment loop. Sedation managed to a documented target is a hallmark critical care activity; sedation that is not documented cannot be shown to have been monitored.',
     rx:[/rass\s*[-+]?\s*\d/i] },
+  { id:'pump', sec:'Medication Infusion Pump', w:4, meds:true,
+    title:'Infusion Pump Documentation',
+    req:'Each medication running prior to or during transport documented with drug name, concentration, dose or rate, and delivery via infusion pump; rate changes charted with times.',
+    why:'Medications running at pickup are part of the critical care the crew assumed. Charting the drug, concentration, and pump-delivered rate proves the infusion was continuously managed; a drip with no documented concentration or rate reads as an unmonitored infusion and undercuts both the medication record and critical care billing.',
+    min:2,
+    rx:[/\bpump\b/i, /\binfusion\b/i, /\bgtt\b|\bdrip\b/i, /\d+\s*(mcg|mg|units?)\s*\/\s*(kg\s*\/\s*)?(min|hr|hour)\b/i, /\d+\s*m[lL]\s*\/\s*(hr|hour)\b/i, /\d+\s*(mg|mcg|units?)\s+in\s+\d+\s*m[lL]/i, /titrat/i] },
   { id:'pain', sec:'Sedation & Pain', w:3,
     title:'Pain Score Documented (when pain or analgesia is charted)',
     req:'If pain or an analgesic appears in the narrative, a numeric pain score (0-10 or nonverbal scale) must be documented, with reassessment after treatment.',
@@ -632,13 +649,13 @@ var RISK = [
     rx:/(patient|pt)\s+(fell|dropped)|fall\s+(during|from)\s+(loading|transfer)/i }
 ];
 
-var state = { mission:'ift', mode:'air', vent:false, sed:false, results:{}, analyzed:false, langHits:[], riskHits:[] };
+var state = { mission:null, mode:'air', intub:null, meds:null, results:{}, analyzed:false, langHits:[], riskHits:[] };
 
 function applicable(c) {
   if (c.mission && c.mission !== state.mission) return false;
   if (c.mode && c.mode !== state.mode) return false;
-  if (c.vent && !state.vent) return false;
-  if (c.sed && !state.sed) return false;
+  if (c.vent && state.intub !== 'yes') return false;
+  if (c.meds && state.meds !== 'yes') return false;
   return true;
 }
 
@@ -687,6 +704,14 @@ function setToggle(group, val) {
   });
 }
 
+function reflectToggles() {
+  ['mission', 'intub', 'meds'].forEach(function (g) {
+    document.querySelectorAll('.tg[data-group=' + g + ']').forEach(function (e) {
+      e.classList.toggle('on', e.dataset.val === state[g]);
+    });
+  });
+}
+
 /* Pull demographics from the chart into any header field the reviewer left blank.
    Never overwrites a field that already has a value. */
 function autofillFromChart(text) {
@@ -726,15 +751,22 @@ function autofillFromChart(text) {
   m = /land[^0-9\n]{0,30}(\d{3,4})\s*\/\s*(\d{3,4})/i.exec(text);
   if (m) { fill('f_tland', m[1], 'landing time'); fill('f_tdep', m[2], 'departure time'); }
   m = /(\d+(?:\.\d+)?)\s*(?:loaded\s+)?(?:statute\s+)?miles/i.exec(text); if (m) fill('f_miles', m[1], 'loaded miles');
-  if (/interfacility|\bIFT\b/i.test(text)) {
-    if (state.mission !== 'ift') { setToggle('mission', 'ift'); filled.push('mission: IFT'); }
-  } else if (/scene\s+(call|response|flight)/i.test(text)) {
-    if (state.mission !== 'scene') { setToggle('mission', 'scene'); filled.push('mission: scene call'); }
-  }
   return filled;
 }
 
 function analyze() {
+  var missing = [];
+  if (!state.mission) missing.push('Scene Call or Interfacility (IFT)');
+  if (!state.intub) missing.push('Intubated Yes or No');
+  if (!state.meds) missing.push('Medications Prior to Transport Yes or No');
+  var selwarn = document.getElementById('selwarn');
+  if (missing.length) {
+    selwarn.style.display = 'block';
+    selwarn.textContent = 'Select before analyzing: ' + missing.join(' • ');
+    state.analyzed = false;
+    return;
+  }
+  selwarn.style.display = 'none';
   var text = document.getElementById('chart').value;
   state.analyzed = true;
   var filled = autofillFromChart(text);
@@ -744,9 +776,6 @@ function analyze() {
   renderBilling();
   renderTimes();
   state.results = {};
-  /* auto-detect ventilated and sedated status from the narrative — no toggle needed */
-  state.vent = /intubat|extubat|\bett\b|endotracheal|mechanical(ly)?\s+ventilat|\bventilator\b|p\.?\s?peak|p\.?\s?plat|\bvte\b|hamilton/i.test(text);
-  state.sed = state.vent || /\brass\b|propofol|precedex|dexmedetomidine|(ketamine|versed|midazolam|fentanyl)\s+(drip|infusion|gtt)|paralyz|rocuronium|vecuronium|sedation\s+(maintained|titrated|managed)/i.test(text);
   CRITERIA.forEach(function (c) {
     if (!applicable(c)) { state.results[c.id] = { status:'na', found:null, inapplicable:true }; return; }
     var r = detect(c, text);
@@ -884,8 +913,8 @@ function render() {
     if (f.rn) crew.push('RN ' + f.rn);
     if (f.medic) crew.push('Medic ' + f.medic);
     if (crew.length) line += ' Crew: ' + crew.join(', ') + '.';
-    if (state.vent) line += ' Ventilated patient (detected from narrative).';
-    else if (state.sed) line += ' Sedation managed (detected from narrative).';
+    if (state.intub === 'yes') line += ' Intubated and mechanically ventilated patient.';
+    if (state.meds === 'yes') line += ' Medication infusions running prior to transport.';
     if (state.riskHits.some(function (h) { return h.cat === 'harm'; })) {
       line += ' Risk Management review flagged; see the Risk Management Screen (alert only, not scored).';
     }
@@ -1418,11 +1447,12 @@ function saveToLog() {
   var f = getFields();
   if (!f.oca.trim()) { alert('Enter the OCA number first. It is the key each review is saved and logged under.'); document.getElementById('f_oca').focus(); return; }
   if (!state.analyzed) { checkHeader(); analyze(); }
+  if (!state.analyzed) return;
   var s = computeScore();
   var log = getLog();
   log[f.oca.trim()] = {
     f: f, chart: document.getElementById('chart').value,
-    mission: state.mission, mode: state.mode, vent: state.vent, sed: state.sed,
+    mission: state.mission, mode: state.mode, intub: state.intub, meds: state.meds,
     results: state.results, langHits: state.langHits, riskHits: state.riskHits, attachments: attachments,
     score: s.score, savedAt: new Date().toISOString()
   };
@@ -1437,10 +1467,10 @@ function loadFromLog(key) {
     if (el) el.value = d.f[k];
   });
   document.getElementById('chart').value = d.chart || '';
-  state.mission = d.mission; state.mode = 'air'; state.vent = d.vent; state.sed = d.sed;
-  document.querySelectorAll('.tg[data-group=mission]').forEach(function (e) {
-    e.classList.toggle('on', e.dataset.val === state.mission);
-  });
+  state.mission = d.mission; state.mode = 'air';
+  state.intub = d.intub || (typeof d.vent === 'boolean' ? (d.vent ? 'yes' : 'no') : null);
+  state.meds = d.meds || (typeof d.vent === 'boolean' ? 'no' : null);
+  reflectToggles();
   state.results = d.results || {};
   state.langHits = d.langHits || [];
   state.riskHits = d.riskHits || [];
@@ -1552,7 +1582,7 @@ function save() {
   try {
     localStorage.setItem('tsqi', JSON.stringify({
       f: getFields(), chart: document.getElementById('chart').value,
-      mission: state.mission, mode: state.mode, vent: state.vent, sed: state.sed,
+      mission: state.mission, mode: state.mode, intub: state.intub, meds: state.meds,
       attachments: attachments
     }));
   } catch (e) {}
@@ -1566,15 +1596,11 @@ function load() {
       if (el) el.value = d.f[k];
     });
     document.getElementById('chart').value = d.chart || '';
-    if (d.mission) {
-      state.mission = d.mission;
-      document.querySelectorAll('.tg[data-group=mission]').forEach(function (e) {
-        e.classList.toggle('on', e.dataset.val === d.mission);
-      });
-    }
+    if (d.mission) state.mission = d.mission;
     state.mode = 'air';
-    state.vent = !!d.vent;
-    state.sed = !!d.sed;
+    state.intub = d.intub || (typeof d.vent === 'boolean' ? (d.vent ? 'yes' : 'no') : null);
+    state.meds = d.meds || null;
+    reflectToggles();
     if (d.attachments) { attachments = d.attachments; renderFiles(); }
   } catch (e) {}
 }
