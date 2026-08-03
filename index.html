@@ -374,8 +374,12 @@ button.primary:hover { filter: brightness(1.07); }
       <div class="card" id="summarycard" style="display:none">
         <h2>Call Summary &amp; Reviewer Assessment</h2>
         <div id="summarytext"></div>
-        <label style="margin-top:12px">Reviewer Comments (optional)</label>
-        <textarea id="f_comments" style="min-height:70px" placeholder="Additional QI reviewer notes for this call..."></textarea>
+        <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+          <div style="flex:2;min-width:180px"><label>Reviewed By</label><input type="text" id="f_reviewer" placeholder="Name, credentials"></div>
+          <div style="flex:1;min-width:140px"><label>Review Date</label><input type="date" id="f_revdate"></div>
+        </div>
+        <label style="margin-top:12px">Reviewer Comments</label>
+        <textarea id="f_comments" style="min-height:70px" placeholder="Free-text QI reviewer notes for this call..."></textarea>
       </div>
       <div class="card" id="langcard" style="display:none">
         <h2>Language Audit &mdash; Words That Get Claims Denied</h2>
@@ -1048,7 +1052,11 @@ function renderPrintHeader(s, g) {
         '<td><b>Response Time</b>' + (t.response === null ? '—' : t.response + ' min' + (t.response > 10 ? ' — EXCEEDS 10 MIN, FLAGGED' : '')) + '</td>' +
         '<td><b>' + (state.mission === 'scene' ? 'Scene Time' : 'Land-to-Takeoff') + '</b>' + (t.ground === null ? '—' : t.ground + ' min' + (t.ground > limit ? ' — EXCEEDS ' + limit + ' MIN, FLAGGED' : '')) + '</td>';
     })() +
-    '</tr></table>';
+    '</tr><tr>' +
+    '<td colspan="2"><b>Reviewed By</b>' + esc(f.reviewer || '—') + '</td>' +
+    '<td colspan="2"><b>Review Date</b>' + esc(f.revdate || '—') + '</td>' +
+    '</tr></table>' +
+    (f.comments ? '<div style="margin-top:6px;font-size:12px"><b>Reviewer Comments:</b> ' + esc(f.comments) + '</div>' : '');
 }
 
 function getFields() {
@@ -1061,6 +1069,8 @@ function getFields() {
     medic: document.getElementById('f_medic').value,
     pilot: document.getElementById('f_pilot').value,
     comments: document.getElementById('f_comments').value,
+    reviewer: document.getElementById('f_reviewer').value,
+    revdate: document.getElementById('f_revdate').value,
     pickup: document.getElementById('f_pickup').value,
     dropoff: document.getElementById('f_dropoff').value,
     icd: document.getElementById('f_icd').value,
@@ -1573,7 +1583,7 @@ document.getElementById('savenewbtn').addEventListener('click', function () {
   }, { once: true });
   window.print();
 });
-['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments'].forEach(function (id) {
+['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments','f_reviewer','f_revdate'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
 });
 ['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
