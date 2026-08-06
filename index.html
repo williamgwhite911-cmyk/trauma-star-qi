@@ -247,16 +247,62 @@ button.primary:hover { filter: brightness(1.07); }
           <div><label>Chief Complaint</label><input type="text" id="f_cc" placeholder="e.g., Suspected LVO stroke"></div>
         </div>
         <div class="row2">
-          <div><label>Flight Nurse</label><input type="text" id="f_rn" placeholder="Name, RN"></div>
-          <div><label>Flight Paramedic</label><input type="text" id="f_medic" placeholder="Name, Paramedic"></div>
+          <div><label>Flight Nurse</label>
+            <select id="f_rn">
+              <option value="">— Select —</option>
+              <option value="Megan Marlow, RN">Megan Marlow</option>
+              <option value="Roy Mendez, RN">Roy Mendez</option>
+              <option value="Yanet Leal-Concepcion, RN">Yanet Leal-Concepcion</option>
+              <option value="Shaun Tome, RN">Shaun Tome</option>
+              <option value="Angus Porter, RN">Angus Porter</option>
+              <option value="Jorge Bolivar, RN">Jorge Bolivar</option>
+              <option value="William White, RN">William White</option>
+              <option value="Jeff Lauraitis, RN">Jeff Lauraitis</option>
+              <option value="Obed Bello, RN">Obed Bello</option>
+              <option value="Marlon Proenza, RN">Marlon Proenza</option>
+              <option value="Jessica Medlin, RN">Jessica Medlin</option>
+            </select>
+          </div>
+          <div><label>Flight Paramedic</label>
+            <select id="f_medic">
+              <option value="">— Select —</option>
+              <option value="Richard Vandervoort, Paramedic">Richard Vandervoort</option>
+              <option value="Antonio Perez, Paramedic">Antonio Perez</option>
+              <option value="Harold Perez, Paramedic">Harold Perez</option>
+              <option value="Damian Suarez, Paramedic">Damian Suarez</option>
+              <option value="Michael Lopez, Paramedic">Michael Lopez</option>
+              <option value="Adrian Saez, Paramedic">Adrian Saez</option>
+              <option value="Kaitlyn Foster, Paramedic">Kaitlyn Foster</option>
+              <option value="Xavier Simancas, Paramedic">Xavier Simancas</option>
+              <option value="Fernando Duran, Paramedic">Fernando Duran</option>
+              <option value="Jesse Hubman, Paramedic">Jesse Hubman</option>
+              <option value="Joshua Carmichael, Paramedic">Joshua Carmichael</option>
+              <option value="Matthew Hill, Paramedic">Matthew Hill</option>
+              <option value="Liz Komoroski, Paramedic">Liz Komoroski</option>
+              <option value="Jesus Hernandez Lopez, Paramedic">Jesus Hernandez Lopez</option>
+              <option value="Sergio Sanchez, Paramedic">Sergio Sanchez</option>
+              <option value="Gavin Mock, Paramedic">Gavin Mock</option>
+              <option value="Aaron Sparber, Paramedic">Aaron Sparber</option>
+              <option value="Wyatt Carson, Paramedic">Wyatt Carson</option>
+              <option value="Alfredo Montes, Paramedic">Alfredo Montes</option>
+              <option value="Michael Bernard, Paramedic">Michael Bernard</option>
+              <option value="Morgan Anderson, Paramedic">Morgan Anderson</option>
+            </select>
+          </div>
         </div>
         <div class="row2">
           <div><label>Pilot</label><input type="text" id="f_pilot" placeholder="Name, Pilot in Command"></div>
           <div></div>
         </div>
         <div class="row2">
-          <div><label>Pick-up Location</label><input type="text" id="f_pickup" placeholder="Scene / sending facility"></div>
-          <div><label>Drop-off Location</label><input type="text" id="f_dropoff" placeholder="Receiving facility"></div>
+          <div><label>Pick-up Location</label>
+            <select id="f_pickupPick"><option value="">— Pick hospital (or type below) —</option></select>
+            <input type="text" id="f_pickup" placeholder="Scene / sending facility" style="margin-top:4px">
+          </div>
+          <div><label>Drop-off Location</label>
+            <select id="f_dropoffPick"><option value="">— Pick hospital (or type below) —</option></select>
+            <input type="text" id="f_dropoff" placeholder="Receiving facility" style="margin-top:4px">
+          </div>
         </div>
         <div id="headerwarn" class="headerwarn"></div>
         <div id="autofillnote" style="font-size:12px;color:var(--blue);margin-top:4px"></div>
@@ -723,7 +769,7 @@ function autofillFromChart(text) {
   var filled = [];
   function fill(id, val, label) {
     var el = document.getElementById(id);
-    if (el && !el.value.trim() && val) { el.value = String(val).trim(); filled.push(label); }
+    if (el && !el.value.trim() && val) { setFieldValue(el, String(val).trim()); filled.push(label); }
   }
   var m;
   var ocaRe = /oca[#:\s-]*([a-z0-9][a-z0-9-]{1,15})/gi, om;
@@ -1481,7 +1527,7 @@ function loadFromLog(key) {
   if (!d) return;
   Object.keys(d.f).forEach(function (k) {
     var el = document.getElementById('f_' + k);
-    if (el) el.value = d.f[k];
+    if (el) setFieldValue(el, d.f[k]);
   });
   document.getElementById('chart').value = d.chart || '';
   state.mission = d.mission; state.mode = 'air';
@@ -1610,7 +1656,7 @@ function load() {
     if (!d) return;
     Object.keys(d.f || {}).forEach(function (k) {
       var el = document.getElementById('f_' + k);
-      if (el) el.value = d.f[k];
+      if (el) setFieldValue(el, d.f[k]);
     });
     document.getElementById('chart').value = d.chart || '';
     /* mission, intubated, and meds toggles are deliberately NOT restored between
@@ -1620,6 +1666,59 @@ function load() {
     if (d.attachments) { attachments = d.attachments; renderFiles(); }
   } catch (e) {}
 }
+function setFieldValue(el, v) {
+  if (el && el.tagName === 'SELECT' && v) {
+    var has = false;
+    for (var i = 0; i < el.options.length; i++) { if (el.options[i].value === v) { has = true; break; } }
+    if (!has) { var o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); }
+  }
+  if (el) el.value = v;
+}
+var QI_HOSPITALS = {
+  'Monroe County / Florida Keys': [
+    'Lower Keys Medical Center',
+    'Baptist Health Fishermen\'s Community Hospital',
+    'Baptist Health Mariners Hospital'
+  ],
+  'Miami-Dade County': [
+    'Jackson Memorial Hospital (Ryder Trauma Center)',
+    'UHealth Tower (University of Miami Hospital and Clinics)',
+    'Sylvester Comprehensive Cancer Center',
+    'Bruce W. Carter VA Medical Center (Miami VA)',
+    'Jackson South Medical Center',
+    'Jackson North Medical Center',
+    'HCA Florida Kendall Hospital',
+    'HCA Florida Aventura Hospital',
+    'HCA Florida Mercy Hospital',
+    'Baptist Hospital of Miami',
+    'South Miami Hospital',
+    'West Kendall Baptist Hospital',
+    'Homestead Hospital',
+    'Baptist Health Doctors Hospital',
+    'Nicklaus Children\'s Hospital',
+    'Mount Sinai Medical Center',
+    'North Shore Medical Center',
+    'Palmetto General Hospital',
+    'Hialeah Hospital',
+    'Coral Gables Hospital',
+    'Larkin Community Hospital',
+    'Keralty Hospital Miami (formerly Westchester General)'
+  ]
+};
+['f_pickupPick', 'f_dropoffPick'].forEach(function (id) {
+  var sel = document.getElementById(id);
+  if (!sel) return;
+  Object.keys(QI_HOSPITALS).forEach(function (g) {
+    var og = document.createElement('optgroup'); og.label = g;
+    QI_HOSPITALS[g].forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; og.appendChild(o); });
+    sel.appendChild(og);
+  });
+  sel.addEventListener('change', function () {
+    if (!sel.value) return;
+    document.getElementById(id === 'f_pickupPick' ? 'f_pickup' : 'f_dropoff').value = sel.value;
+    checkHeader(); save();
+  });
+});
 load();
 checkHeader();
 renderBilling();
