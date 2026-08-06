@@ -244,7 +244,33 @@ button.primary:hover { filter: brightness(1.07); }
               <option>Trauma Star South</option>
             </select>
           </div>
-          <div><label>Chief Complaint</label><input type="text" id="f_cc" placeholder="e.g., Suspected LVO stroke"></div>
+          <div><label>Chief Complaint (type to search)</label><input type="text" id="f_cc" list="ccList" placeholder="e.g., Suspected LVO stroke"></div>
+          <div><label>Primary Diagnosis — IFT (type to search ICD-10)</label><input type="text" id="f_dx" list="dx10list" placeholder="Code or words, e.g., I63.9 or sepsis"></div>
+          <div><label>Call Type</label>
+            <select id="f_calltype">
+              <option value="">— Select —</option>
+              <option>Trauma Alert — Adult</option>
+              <option>Trauma Alert — Pediatric</option>
+              <option>Trauma (non-alert)</option>
+              <option>Stroke Alert</option>
+              <option>Stroke — Ischemic</option>
+              <option>Stroke — Hemorrhagic</option>
+              <option>Stroke — Undifferentiated</option>
+              <option>STEMI / Cardiac</option>
+              <option>Cardiac Arrest</option>
+              <option>Respiratory</option>
+              <option>Sepsis</option>
+              <option>OB / Maternal</option>
+              <option>Pediatric (non-trauma)</option>
+              <option>Neuro (non-stroke)</option>
+              <option>GI Bleed</option>
+              <option>Overdose / Tox</option>
+              <option>Burn</option>
+              <option>Drowning / Submersion</option>
+              <option>Medical (other)</option>
+              <option>Other</option>
+            </select>
+          </div>
         </div>
         <div class="row2">
           <div><label>Flight Nurse</label>
@@ -364,6 +390,8 @@ button.primary:hover { filter: brightness(1.07); }
           </div>
         </div>
         <datalist id="icdlist"></datalist>
+        <datalist id="ccList"></datalist>
+        <datalist id="dx10list"></datalist>
         <div class="row2">
           <div>
             <label>Transport Code (HCPCS)</label>
@@ -405,6 +433,17 @@ button.primary:hover { filter: brightness(1.07); }
         <div id="logpanel"></div>
         <button id="clearbtn" style="width:100%;margin-top:10px;background:#fff;border:1px solid var(--red);color:var(--red);font:inherit;font-weight:600;padding:9px;border-radius:8px;cursor:pointer">Clear All Data</button>
         <div style="font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center">Erases the current review and every saved log entry from this device. Exported PDFs are not affected.</div>
+      </div>
+
+      <div class="card">
+        <h2>Crew Tracking</h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pick a nurse or paramedic to see every saved review they flew on &mdash; partner, call type, and documentation score &mdash; and export it as a spreadsheet (CSV opens in Excel / Numbers / Sheets).</div>
+        <select id="crewQuery"><option value="">— Select crew member —</option></select>
+        <div id="crewStats" style="margin-top:10px"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button id="crewCsvBtn" style="flex:1;background:#fff;border:1px solid var(--ink-2);color:var(--ink);font:inherit;font-weight:600;padding:9px;border-radius:8px;cursor:pointer">⬇ Export this crew member (CSV)</button>
+          <button id="allCsvBtn" style="flex:1;background:#fff;border:1px solid var(--ink-2);color:var(--ink);font:inherit;font-weight:600;padding:9px;border-radius:8px;cursor:pointer">⬇ Export all reviews (CSV)</button>
+        </div>
       </div>
     </div>
 
@@ -1111,6 +1150,8 @@ function getFields() {
     oca: document.getElementById('f_oca').value,
     aircraft: document.getElementById('f_aircraft').value,
     cc: document.getElementById('f_cc').value,
+    calltype: document.getElementById('f_calltype').value,
+    dx: document.getElementById('f_dx').value,
     rn: document.getElementById('f_rn').value,
     medic: document.getElementById('f_medic').value,
     pilot: document.getElementById('f_pilot').value,
@@ -1557,7 +1598,7 @@ function renderLog() {
   var log = getLog();
   var keys = Object.keys(log).sort(function (a, b) { return (log[b].savedAt || '').localeCompare(log[a].savedAt || ''); });
   var el = document.getElementById('logpanel');
-  if (!keys.length) { el.innerHTML = '<div style="font-size:13px;color:var(--muted)">No saved reviews yet.</div>'; return; }
+  if (!keys.length) { el.innerHTML = '<div style="font-size:13px;color:var(--muted)">No saved reviews yet.</div>'; if (typeof renderCrewStats === 'function') renderCrewStats(); return; }
   el.innerHTML = keys.map(function (k) {
     var d = log[k];
     var g = grade(d.score);
@@ -1576,6 +1617,7 @@ function renderLog() {
       loadFromLog(row.dataset.log);
     });
   });
+  if (typeof renderCrewStats === 'function') renderCrewStats();
 }
 document.getElementById('savebtn').addEventListener('click', saveToLog);
 
@@ -1629,7 +1671,7 @@ document.getElementById('savenewbtn').addEventListener('click', function () {
   }, { once: true });
   window.print();
 });
-['f_date','f_oca','f_aircraft','f_cc','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments','f_reviewer','f_revdate'].forEach(function (id) {
+['f_date','f_oca','f_aircraft','f_cc','f_calltype','f_dx','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments','f_reviewer','f_revdate'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
 });
 ['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
@@ -1719,11 +1761,186 @@ var QI_HOSPITALS = {
     checkHeader(); save();
   });
 });
+/* ===== Searchable chief-complaint and ICD-10 primary-diagnosis lists ===== */
+var CC_LIST = [
+  'Trauma Alert — Adult','Trauma Alert — Pediatric','Trauma — MVC (motor vehicle collision)','Trauma — Motorcycle crash','Trauma — Bicycle vs auto','Trauma — Pedestrian struck','Trauma — Fall from height','Trauma — Ground-level fall (anticoagulated)','Trauma — Gunshot wound','Trauma — Stab wound','Trauma — Boating / watercraft injury','Trauma — Diving injury','Trauma — Crush injury','Trauma — Traumatic amputation','Trauma — Head injury / TBI','Trauma — Spinal injury','Trauma — Chest injury / pneumothorax','Trauma — Abdominal injury','Trauma — Pelvic fracture','Trauma — Long-bone fracture','Trauma — Multisystem','Trauma — Burns',
+  'Stroke Alert','Stroke — Ischemic (CVA)','Stroke — Hemorrhagic (ICH)','Stroke — Undifferentiated','Suspected LVO stroke','TIA (transient ischemic attack)','Subarachnoid hemorrhage','Subdural hematoma','Seizure / status epilepticus','Altered mental status','Syncope','Severe headache / thunderclap',
+  'STEMI','NSTEMI / ACS','Chest pain — cardiac workup','Cardiac arrest — ROSC','Cardiogenic shock','Acute decompensated heart failure / pulmonary edema','Cardiac arrhythmia — unstable','Bradycardia — symptomatic','SVT / rapid AFib','Ventricular tachycardia','Aortic dissection','Aortic aneurysm — ruptured / leaking','Hypertensive emergency','Post cardiac arrest care',
+  'Respiratory failure — hypoxemic','Respiratory failure — hypercapnic','Respiratory distress','COPD exacerbation','Asthma exacerbation / status asthmaticus','Pneumonia','ARDS','Pulmonary embolism','Pneumothorax — spontaneous','Airway obstruction / angioedema','Intubated — vent management transfer',
+  'Sepsis','Septic shock','Fever / infection — deteriorating','Meningitis — suspected',
+  'GI bleed — upper','GI bleed — lower','Ruptured esophageal varices','Acute abdomen / perforated viscus','Bowel obstruction','Acute pancreatitis','Acute cholecystitis / cholangitis','Appendicitis','Mesenteric ischemia','Liver failure',
+  'DKA (diabetic ketoacidosis)','HHS (hyperosmolar hyperglycemic state)','Hypoglycemia — refractory','Acute kidney injury / uremia','Hyperkalemia','Electrolyte emergency','Dialysis-related emergency',
+  'OB — Preterm labor','OB — Preeclampsia / eclampsia','OB — HELLP syndrome','OB — Placental abruption','OB — Placenta previa with bleeding','OB — Postpartum hemorrhage','OB — High-risk pregnancy transfer','Neonatal transfer',
+  'Pediatric — respiratory distress','Pediatric — seizure','Pediatric — sepsis','Pediatric — DKA','Pediatric — drowning','Pediatric — trauma','Pediatric — medical transfer',
+  'Overdose — opioid','Overdose — polypharmacy','Toxic ingestion','Envenomation (marine / snake)','Anaphylaxis','Drowning / submersion injury','Decompression sickness / dive injury','Carbon monoxide exposure','Heat stroke','Hypothermia','Electrical injury / lightning strike',
+  'Psychiatric emergency — medical clearance transfer','Vascular emergency — acute limb ischemia','Compartment syndrome','Necrotizing soft-tissue infection','Orthopedic emergency — open fracture','Surgical emergency — no OR at sending','ICU transfer — higher level of care','Ventilator-dependent transfer','Specialty service unavailable — transfer',
+];
+var DX10_LIST = [
+  'S06.9X9A — Traumatic brain injury, unspecified','S06.5X9A — Traumatic subdural hemorrhage','S06.4X9A — Epidural hemorrhage','S06.6X9A — Traumatic subarachnoid hemorrhage','S06.2X9A — Diffuse traumatic brain injury','S02.91XA — Skull fracture, unspecified','S12.9XXA — Cervical spine fracture, unspecified','S22.009A — Thoracic vertebra fracture, unspecified','S32.9XXA — Pelvic fracture, unspecified','S27.0XXA — Traumatic pneumothorax','S27.1XXA — Traumatic hemothorax','S27.2XXA — Traumatic hemopneumothorax','S22.42XA — Multiple rib fractures (flail segment)','S36.09XA — Splenic injury','S36.119A — Liver laceration, unspecified','S37.009A — Kidney injury, unspecified','S72.90XA — Femur fracture, unspecified','S82.90XA — Tibia fracture, unspecified','S42.90XA — Shoulder/upper arm fracture','S48.919A — Traumatic amputation, arm','S78.919A — Traumatic amputation, leg','T07.XXXA — Multiple injuries, unspecified','T79.4XXA — Traumatic shock','T14.90XA — Injury, unspecified',
+  'I63.9 — Cerebral infarction (ischemic stroke), unspecified','I63.50 — Ischemic stroke due to occlusion, unspecified','I61.9 — Intracerebral hemorrhage (hemorrhagic stroke), unspecified','I60.9 — Subarachnoid hemorrhage, unspecified','I62.00 — Subdural hemorrhage (nontraumatic), unspecified','G45.9 — TIA, unspecified','I67.89 — Cerebrovascular disease, other','G93.6 — Cerebral edema','G93.5 — Compression of brain / herniation','G40.901 — Seizure disorder with status epilepticus','R56.9 — Seizure, unspecified','G93.40 — Encephalopathy, unspecified','R40.20 — Coma / unresponsive, unspecified','F29 — Psychosis, unspecified','G61.0 — Guillain-Barre syndrome','G70.00 — Myasthenia gravis without exacerbation','G70.01 — Myasthenia gravis with exacerbation',
+  'I21.3 — STEMI, unspecified site','I21.02 — STEMI, anterior wall (LAD)','I21.11 — STEMI, inferior wall (RCA)','I21.4 — NSTEMI','I20.0 — Unstable angina','I46.9 — Cardiac arrest, unspecified','I46.2 — Cardiac arrest due to cardiac condition','I97.120 — Postprocedural cardiac arrest','I49.01 — Ventricular fibrillation','I47.21 — Ventricular tachycardia (torsades)','I47.1 — Supraventricular tachycardia','I48.91 — Atrial fibrillation, unspecified','I48.92 — Atrial flutter, unspecified','I44.2 — Complete (third-degree) AV block','R00.1 — Bradycardia, unspecified','I50.9 — Heart failure, unspecified','I50.21 — Acute systolic heart failure','I50.31 — Acute diastolic heart failure','J81.0 — Acute pulmonary edema','R57.0 — Cardiogenic shock','I71.00 — Aortic dissection, unspecified site','I71.01 — Aortic dissection, thoracic','I71.02 — Aortic dissection, thoracoabdominal','I71.3 — Abdominal aortic aneurysm, ruptured','I71.1 — Thoracic aortic aneurysm, ruptured','I16.9 — Hypertensive crisis, unspecified','I16.1 — Hypertensive emergency','I26.99 — Pulmonary embolism without acute cor pulmonale','I26.02 — Saddle embolus with acute cor pulmonale','I74.3 — Acute limb ischemia (lower extremity embolism)','I80.10 — DVT, femoral vein',
+  'J96.00 — Acute respiratory failure, unspecified','J96.01 — Acute respiratory failure with hypoxia','J96.02 — Acute respiratory failure with hypercapnia','J80 — ARDS','J44.1 — COPD with acute exacerbation','J45.901 — Asthma exacerbation, unspecified','J45.902 — Status asthmaticus','J18.9 — Pneumonia, unspecified organism','J69.0 — Aspiration pneumonitis','J93.0 — Spontaneous tension pneumothorax','J93.11 — Primary spontaneous pneumothorax','J98.11 — Atelectasis','T88.4XXA — Failed/difficult intubation','J38.4 — Laryngeal edema','T78.3XXA — Angioneurotic edema (angioedema)',
+  'A41.9 — Sepsis, unspecified organism','R65.20 — Severe sepsis without septic shock','R65.21 — Severe sepsis with septic shock','R57.1 — Hypovolemic shock','R57.9 — Shock, unspecified','A41.02 — Sepsis due to MRSA','G00.9 — Bacterial meningitis, unspecified','M72.6 — Necrotizing fasciitis','L03.90 — Cellulitis, unspecified',
+  'K92.2 — GI hemorrhage, unspecified','K92.0 — Hematemesis','K92.1 — Melena','I85.01 — Esophageal varices with bleeding','K25.0 — Gastric ulcer with hemorrhage','K26.0 — Duodenal ulcer with hemorrhage','K65.9 — Peritonitis, unspecified','K63.1 — Perforation of intestine','K56.609 — Bowel obstruction, unspecified','K85.90 — Acute pancreatitis, unspecified','K81.0 — Acute cholecystitis','K83.09 — Cholangitis','K35.80 — Acute appendicitis, unspecified','K55.069 — Acute mesenteric ischemia','K72.00 — Acute hepatic failure','K76.7 — Hepatorenal syndrome',
+  'E10.10 — Type 1 diabetes with ketoacidosis without coma','E10.11 — Type 1 diabetes with ketoacidosis with coma','E11.10 — Type 2 diabetes with ketoacidosis without coma','E11.00 — Type 2 diabetes with HHS','E16.2 — Hypoglycemia, unspecified','E87.5 — Hyperkalemia','E87.6 — Hypokalemia','E87.1 — Hyponatremia','E87.0 — Hypernatremia','E86.0 — Dehydration','N17.9 — Acute kidney injury, unspecified','N18.6 — End-stage renal disease','E66.2 — Obesity hypoventilation syndrome',
+  'O60.10X0 — Preterm labor with preterm delivery, unspecified','O14.13 — Severe preeclampsia, third trimester','O15.03 — Eclampsia, third trimester','O14.23 — HELLP syndrome, third trimester','O45.93 — Placental abruption, third trimester','O44.13 — Placenta previa with hemorrhage, third trimester','O72.1 — Postpartum hemorrhage, other immediate','O00.90 — Ectopic pregnancy, unspecified','P07.30 — Preterm newborn, unspecified','P22.0 — Respiratory distress syndrome of newborn',
+  'T39.1X1A — Acetaminophen poisoning, accidental','T40.1X1A — Heroin poisoning, accidental','T40.4X1A — Synthetic opioid poisoning, accidental','T42.4X1A — Benzodiazepine poisoning, accidental','T43.91XA — Psychotropic drug poisoning','T50.901A — Poisoning, unspecified drug','T58.94XA — Carbon monoxide toxicity','T63.001A — Snake venom toxicity','T63.591A — Marine animal envenomation','T78.2XXA — Anaphylactic shock, unspecified','T75.1XXA — Drowning / nonfatal submersion','T70.3XXA — Decompression sickness (bends)','T67.01XA — Heat stroke','T68.XXXA — Hypothermia','T75.4XXA — Electrocution','T31.20 — Burns, 20-29% TBSA','T31.30 — Burns, 30-39% TBSA','T31.40 — Burns, 40-49% TBSA','T27.0XXA — Inhalation burn, larynx/trachea',
+  'M79.A21 — Compartment syndrome, right lower extremity','M79.A22 — Compartment syndrome, left lower extremity','S81.801A — Open lower-leg wound','T84.50XA — Infected joint prosthesis','D62 — Acute posthemorrhagic anemia','D65 — DIC','R55 — Syncope and collapse','R06.02 — Shortness of breath','R07.9 — Chest pain, unspecified','R10.9 — Abdominal pain, unspecified','R41.82 — Altered mental status, unspecified','R51.9 — Headache, unspecified','Z76.82 — Awaiting transplant — transfer','Z75.1 — Awaiting facility admission — higher level of care',
+];
+(function fillSearchLists(){
+  var cc = document.getElementById('ccList');
+  if (cc) CC_LIST.forEach(function (v) { var o = document.createElement('option'); o.value = v; cc.appendChild(o); });
+  var dx = document.getElementById('dx10list');
+  if (dx) DX10_LIST.forEach(function (v) { var o = document.createElement('option'); o.value = v; dx.appendChild(o); });
+})();
+
+/* ===== Crew tracking: query saved reviews by nurse / paramedic ===== */
+var QI_RNS = ['Megan Marlow','Roy Mendez','Yanet Leal-Concepcion','Shaun Tome','Angus Porter','Jorge Bolivar','William White','Jeff Lauraitis','Obed Bello','Marlon Proenza','Jessica Medlin'];
+var QI_MEDICS = ['Richard Vandervoort','Antonio Perez','Harold Perez','Damian Suarez','Michael Lopez','Adrian Saez','Kaitlyn Foster','Xavier Simancas','Fernando Duran','Jesse Hubman','Joshua Carmichael','Matthew Hill','Liz Komoroski','Jesus Hernandez Lopez','Sergio Sanchez','Gavin Mock','Aaron Sparber','Wyatt Carson','Alfredo Montes','Michael Bernard','Morgan Anderson'];
+function baseName(s) { return String(s || '').replace(/,\s*(RN|Paramedic|EMT-?P|Medic)\b.*$/i, '').trim(); }
+function inferCallType(d) {
+  if (d.f && d.f.calltype) return { type: d.f.calltype, auto: false };
+  var t = ((d.f && d.f.cc || '') + ' ' + (d.f && d.f.dx || '') + ' ' + (d.f && d.f.icd || '') + ' ' + (d.chart || '').slice(0, 4000)).toLowerCase();
+  var rules = [
+    ['Trauma Alert — Pediatric', /(pediatric|peds|child|infant).{0,40}trauma|trauma.{0,40}(pediatric|peds|child|infant)/],
+    ['Trauma Alert — Adult', /trauma\s*alert/],
+    ['Trauma (non-alert)', /trauma|mvc\b|mcc\b|gsw|stab|gunshot|fall from|tbi\b|fracture|amputat/],
+    ['Stroke — Hemorrhagic', /hemorrhagic stroke|\bich\b|intracerebral hem|subarachnoid|\bsah\b|i61|i60/],
+    ['Stroke — Ischemic', /ischemic|\blvo\b|thrombectomy|tpa\b|tnk\b|cerebral infarct|i63/],
+    ['Stroke — Undifferentiated', /stroke|\bcva\b/],
+    ['Cardiac Arrest', /cardiac arrest|\brosc\b|\bcpr\b|code blue/],
+    ['STEMI / Cardiac', /stemi|myocardial infarct|\bacs\b|cath lab|nstemi/],
+    ['Sepsis', /sepsis|septic/],
+    ['OB / Maternal', /\bob\b|labor|pregnan|eclampsia|postpartum/],
+    ['Pediatric', /pediatric|\bpeds\b|infant|neonat/],
+    ['GI Bleed', /gi bleed|hematemesis|melena|variceal/],
+    ['Overdose / Tox', /overdose|ingestion|toxic/],
+    ['Burn', /\bburn\b/],
+    ['Drowning / Submersion', /drown|submersion/],
+    ['Respiratory', /respiratory|hypoxi|copd|asthma|pneumonia|intubat/],
+  ];
+  for (var i = 0; i < rules.length; i++) { if (rules[i][1].test(t)) return { type: rules[i][0], auto: true }; }
+  return { type: 'Medical (other)', auto: true };
+}
+function crewRows(name) {
+  var log = getLog(), rows = [];
+  var want = baseName(name).toLowerCase();
+  Object.keys(log).forEach(function (k) {
+    var d = log[k];
+    var rn = baseName(d.f && d.f.rn), medic = baseName(d.f && d.f.medic);
+    var role = null, partner = '';
+    if (rn.toLowerCase() === want) { role = 'RN'; partner = medic || '—'; }
+    else if (medic.toLowerCase() === want) { role = 'Paramedic'; partner = rn || '—'; }
+    if (!role) return;
+    var ct = inferCallType(d);
+    rows.push({ date: (d.f && d.f.date) || '', oca: k, role: role, partner: partner,
+      aircraft: (d.f && d.f.aircraft) || '',
+      calltype: ct.type + (ct.auto ? ' *' : ''), mission: d.mission === 'scene' ? 'Scene' : (d.mission === 'ift' ? 'IFT' : ''),
+      pickup: (d.f && d.f.pickup) || '', dropoff: (d.f && d.f.dropoff) || '', score: (typeof d.score === 'number') ? d.score : '', savedAt: d.savedAt || '' });
+  });
+  rows.sort(function (a, b) { return (b.date || b.savedAt).localeCompare(a.date || a.savedAt); });
+  return rows;
+}
+function buildCrewSelect() {
+  var sel = document.getElementById('crewQuery');
+  if (!sel) return;
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— Select crew member —</option>';
+  var inLog = {};
+  var log = getLog();
+  Object.keys(log).forEach(function (k) {
+    ['rn', 'medic'].forEach(function (f) {
+      var n = baseName(log[k].f && log[k].f[f]);
+      if (n) inLog[n.toLowerCase()] = n;
+    });
+  });
+  function addGroup(label, names) {
+    var og = document.createElement('optgroup'); og.label = label;
+    names.forEach(function (n) {
+      var o = document.createElement('option'); o.value = n; o.textContent = n;
+      og.appendChild(o); delete inLog[n.toLowerCase()];
+    });
+    sel.appendChild(og);
+  }
+  addGroup('Flight Nurses', QI_RNS);
+  addGroup('Flight Paramedics', QI_MEDICS);
+  var extras = Object.keys(inLog).map(function (k) { return inLog[k]; }).sort();
+  if (extras.length) addGroup('Other names in saved reviews', extras);
+  sel.value = current;
+}
+function renderCrewStats() {
+  buildCrewSelect();
+  var out = document.getElementById('crewStats');
+  if (!out) return;
+  var name = document.getElementById('crewQuery').value;
+  if (!name) { out.innerHTML = '<div style="font-size:13px;color:var(--muted)">Select a crew member above.</div>'; return; }
+  var rows = crewRows(name);
+  if (!rows.length) { out.innerHTML = '<div style="font-size:13px;color:var(--muted)">No saved reviews found for ' + esc(name) + ' on this device.</div>'; return; }
+  var scores = rows.filter(function (r) { return r.score !== ''; }).map(function (r) { return r.score; });
+  var avg = scores.length ? Math.round(scores.reduce(function (a, b) { return a + b; }, 0) / scores.length) : '—';
+  var g = (typeof grade === 'function' && avg !== '—') ? grade(avg) : ['', ''];
+  var html = '<div style="font-size:13px;margin-bottom:8px"><b>' + esc(name) + '</b> — ' + rows.length + ' call' + (rows.length === 1 ? '' : 's') +
+    ' · average score <b class="' + g[1] + '">' + avg + '</b>' +
+    (scores.length ? ' · range ' + Math.min.apply(null, scores) + '–' + Math.max.apply(null, scores) : '') + '</div>';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">' +
+    '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 6px">Date</th><th style="padding:4px 6px">OCA</th><th style="padding:4px 6px">Aircraft</th><th style="padding:4px 6px">Role</th><th style="padding:4px 6px">Partner</th><th style="padding:4px 6px">Call Type</th><th style="padding:4px 6px">Mission</th><th style="padding:4px 6px;text-align:right">Score</th></tr>' +
+    rows.map(function (r) {
+      var rg = (typeof grade === 'function' && r.score !== '') ? grade(r.score) : ['', ''];
+      return '<tr style="border-top:1px solid #e5e7eb;cursor:pointer" data-oca="' + esc(r.oca) + '">' +
+        '<td style="padding:5px 6px;white-space:nowrap">' + esc(r.date || '—') + '</td>' +
+        '<td style="padding:5px 6px">' + esc(r.oca) + '</td>' +
+        '<td style="padding:5px 6px;white-space:nowrap">' + esc(r.aircraft.replace(/^Trauma Star\s*/i, '') || '—') + '</td>' +
+        '<td style="padding:5px 6px">' + r.role + '</td>' +
+        '<td style="padding:5px 6px">' + esc(r.partner) + '</td>' +
+        '<td style="padding:5px 6px">' + esc(r.calltype) + '</td>' +
+        '<td style="padding:5px 6px">' + r.mission + '</td>' +
+        '<td style="padding:5px 6px;text-align:right"><b class="' + rg[1] + '">' + r.score + '</b></td></tr>';
+    }).join('') + '</table></div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-top:5px">* call type inferred from the chart (older review saved before the Call Type field existed). Click a row to open that review.</div>';
+  out.innerHTML = html;
+  out.querySelectorAll('[data-oca]').forEach(function (tr) {
+    tr.addEventListener('click', function () { loadFromLog(tr.dataset.oca); });
+  });
+}
+function csvEscape(v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function downloadCsv(filename, headerRow, rows) {
+  var lines = [headerRow.map(csvEscape).join(',')].concat(rows.map(function (r) { return r.map(csvEscape).join(','); }));
+  var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+document.getElementById('crewQuery').addEventListener('change', renderCrewStats);
+document.getElementById('crewCsvBtn').addEventListener('click', function () {
+  var name = document.getElementById('crewQuery').value;
+  if (!name) { alert('Select a crew member first.'); return; }
+  var rows = crewRows(name);
+  if (!rows.length) { alert('No saved reviews for ' + name + ' on this device.'); return; }
+  downloadCsv('crew-calls-' + name.replace(/\s+/g, '-') + '.csv',
+    ['Crew Member', 'Role', 'Date', 'OCA', 'Aircraft', 'Partner', 'Call Type', 'Mission', 'Pick-up', 'Drop-off', 'Documentation Score'],
+    rows.map(function (r) { return [name, r.role, r.date, r.oca, r.aircraft, r.partner, r.calltype, r.mission, r.pickup, r.dropoff, r.score]; }));
+});
+document.getElementById('allCsvBtn').addEventListener('click', function () {
+  var log = getLog(), rows = [];
+  Object.keys(log).forEach(function (k) {
+    var d = log[k], ct = inferCallType(d);
+    rows.push([(d.f && d.f.date) || '', k, (d.f && d.f.aircraft) || '', baseName(d.f && d.f.rn), baseName(d.f && d.f.medic), (d.f && d.f.pilot) || '',
+      ct.type + (ct.auto ? ' *' : ''), d.mission === 'scene' ? 'Scene' : 'IFT', (d.f && d.f.pickup) || '', (d.f && d.f.dropoff) || '',
+      (typeof d.score === 'number') ? d.score : '']);
+  });
+  if (!rows.length) { alert('No saved reviews on this device yet.'); return; }
+  rows.sort(function (a, b) { return String(b[0]).localeCompare(String(a[0])); });
+  downloadCsv('trauma-star-qi-all-reviews.csv',
+    ['Date', 'OCA', 'Aircraft', 'Flight Nurse', 'Flight Paramedic', 'Pilot', 'Call Type', 'Mission', 'Pick-up', 'Drop-off', 'Documentation Score'], rows);
+});
+
 load();
 checkHeader();
 renderBilling();
 renderTimes();
 renderLog();
+renderCrewStats();
 })();
 </script>
 </body>
