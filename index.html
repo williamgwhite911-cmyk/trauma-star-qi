@@ -1792,7 +1792,25 @@ var DX10_LIST = [
   if (cc) CC_LIST.forEach(function (v) { var o = document.createElement('option'); o.value = v; cc.appendChild(o); });
   var dx = document.getElementById('dx10list');
   if (dx) DX10_LIST.forEach(function (v) { var o = document.createElement('option'); o.value = v; dx.appendChild(o); });
+  /* merge the diagnosis dictionary into the billing ICD-10 lookup + quick-pick list,
+     so a linked code shows its description and validates in the billing section */
+  var bl = document.getElementById('icdlist');
+  DX10_LIST.forEach(function (v) {
+    var m = /^\s*([A-TV-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?)\s*—\s*(.+)$/.exec(v);
+    if (!m || ICD_DESC[m[1]]) return;
+    ICD_DESC[m[1]] = m[2];
+    if (bl) { var o = document.createElement('option'); o.value = m[1]; o.label = m[2]; o.textContent = m[2]; bl.appendChild(o); }
+  });
 })();
+/* Link: choosing a Primary Diagnosis auto-fills the billing Primary ICD-10 code */
+document.getElementById('f_dx').addEventListener('input', function () {
+  var m = /^\s*([A-TV-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?)\s*—/.exec(this.value);
+  if (!m) return;
+  var icd = document.getElementById('f_icd');
+  if (icd.value.trim().toUpperCase() === m[1].toUpperCase()) return;
+  icd.value = m[1];
+  renderBilling(); save();
+});
 
 /* ===== Crew tracking: query saved reviews by nurse / paramedic ===== */
 var QI_RNS = ['Megan Marlow','Roy Mendez','Yanet Leal-Concepcion','Shaun Tome','Angus Porter','Jorge Bolivar','William White','Jeff Lauraitis','Obed Bello','Marlon Proenza','Jessica Medlin'];
