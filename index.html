@@ -841,6 +841,20 @@ function autofillFromChart(text) {
   m = /land[^0-9\n]{0,30}(\d{3,4})\s*\/\s*(\d{3,4})/i.exec(text);
   if (m) { fill('f_tland', m[1], 'landing time'); fill('f_tdep', m[2], 'departure time'); }
   m = /(\d+(?:\.\d+)?)\s*(?:loaded\s+)?(?:statute\s+)?miles/i.exec(text); if (m) fill('f_miles', m[1], 'loaded miles');
+  /* suggest Call Type + Primary Diagnosis (and linked billing ICD-10) from the narrative */
+  var ctSel = document.getElementById('f_calltype');
+  if (ctSel && !ctSel.value && typeof inferCallTypeFromText === 'function') {
+    var ct = inferCallTypeFromText(text.toLowerCase());
+    if (ct) { ctSel.value = ct; if (ctSel.value === ct) filled.push('call type'); else ctSel.value = ''; }
+  }
+  if (typeof suggestDxFromText === 'function') {
+    var dxv = suggestDxFromText(text);
+    if (dxv && !document.getElementById('f_dx').value.trim()) {
+      fill('f_dx', dxv, 'primary dx');
+      var dm = /^([A-TV-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?)\s*—/.exec(dxv);
+      if (dm) { fill('f_icd', dm[1], 'billing ICD-10'); if (typeof renderBilling === 'function') renderBilling(); }
+    }
+  }
   return filled;
 }
 
@@ -1816,9 +1830,7 @@ document.getElementById('f_dx').addEventListener('input', function () {
 var QI_RNS = ['Megan Marlow','Roy Mendez','Yanet Leal-Concepcion','Shaun Tome','Angus Porter','Jorge Bolivar','William White','Jeff Lauraitis','Obed Bello','Marlon Proenza','Jessica Medlin'];
 var QI_MEDICS = ['Richard Vandervoort','Antonio Perez','Harold Perez','Damian Suarez','Michael Lopez','Adrian Saez','Kaitlyn Foster','Xavier Simancas','Fernando Duran','Jesse Hubman','Joshua Carmichael','Matthew Hill','Liz Komoroski','Jesus Hernandez Lopez','Sergio Sanchez','Gavin Mock','Aaron Sparber','Wyatt Carson','Alfredo Montes','Michael Bernard','Morgan Anderson'];
 function baseName(s) { return String(s || '').replace(/,\s*(RN|Paramedic|EMT-?P|Medic)\b.*$/i, '').trim(); }
-function inferCallType(d) {
-  if (d.f && d.f.calltype) return { type: d.f.calltype, auto: false };
-  var t = ((d.f && d.f.cc || '') + ' ' + (d.f && d.f.dx || '') + ' ' + (d.f && d.f.icd || '') + ' ' + (d.chart || '').slice(0, 4000)).toLowerCase();
+function inferCallTypeFromText(t) {
   var rules = [
     ['Trauma Alert — Pediatric', /(pediatric|peds|child|infant).{0,40}trauma|trauma.{0,40}(pediatric|peds|child|infant)/],
     ['Trauma Alert — Adult', /trauma\s*alert/],
@@ -1830,15 +1842,69 @@ function inferCallType(d) {
     ['STEMI / Cardiac', /stemi|myocardial infarct|\bacs\b|cath lab|nstemi/],
     ['Sepsis', /sepsis|septic/],
     ['OB / Maternal', /\bob\b|labor|pregnan|eclampsia|postpartum/],
-    ['Pediatric', /pediatric|\bpeds\b|infant|neonat/],
+    ['Pediatric (non-trauma)', /pediatric|\bpeds\b|infant|neonat/],
     ['GI Bleed', /gi bleed|hematemesis|melena|variceal/],
     ['Overdose / Tox', /overdose|ingestion|toxic/],
     ['Burn', /\bburn\b/],
     ['Drowning / Submersion', /drown|submersion/],
     ['Respiratory', /respiratory|hypoxi|copd|asthma|pneumonia|intubat/],
   ];
-  for (var i = 0; i < rules.length; i++) { if (rules[i][1].test(t)) return { type: rules[i][0], auto: true }; }
-  return { type: 'Medical (other)', auto: true };
+  for (var i = 0; i < rules.length; i++) { if (rules[i][1].test(t)) return rules[i][0]; }
+  return null;
+}
+function inferCallType(d) {
+  if (d.f && d.f.calltype) return { type: d.f.calltype, auto: false };
+  var t = ((d.f && d.f.cc || '') + ' ' + (d.f && d.f.dx || '') + ' ' + (d.f && d.f.icd || '') + ' ' + (d.chart || '').slice(0, 4000)).toLowerCase();
+  return { type: inferCallTypeFromText(t) || 'Medical (other)', auto: true };
+}
+function suggestDxFromText(text) {
+  var up = text.toUpperCase();
+  /* 1) an explicit ICD-10 code written in the chart wins */
+  var codeRe = /\b([A-TV-Z]\d{2}(?:\.[0-9A-Z]{1,4})?)\b/g, m;
+  while ((m = codeRe.exec(up))) {
+    if (ICD_DESC[m[1]] && m[1].indexOf('.') >= 0) return m[1] + ' — ' + ICD_DESC[m[1]];
+  }
+  /* 2) otherwise map narrative keywords to the closest ICD-10 (ordered, most specific first) */
+  var t = text.toLowerCase();
+  var map = [
+    [/status epilepticus/, 'G40.901'], [/subarachnoid/, 'I60.9'], [/subdural/, 'S06.5X9A'],
+    [/hemorrhagic stroke|intracerebral hem|\bich\b/, 'I61.9'],
+    [/ischemic stroke|\blvo\b|thrombectomy|tpa\b|tnk\b|cerebral infarct/, 'I63.9'],
+    [/\bstroke\b|\bcva\b/, 'I63.9'], [/\btia\b/, 'G45.9'],
+    [/stemi/, 'I21.3'], [/nstemi/, 'I21.4'], [/unstable angina/, 'I20.0'],
+    [/cardiac arrest|\brosc\b/, 'I46.9'], [/ventricular tach/, 'I47.21'], [/v-?fib|ventricular fib/, 'I49.01'],
+    [/complete heart block|third.degree/, 'I44.2'], [/afib|atrial fib/, 'I48.91'], [/\bsvt\b/, 'I47.1'],
+    [/aortic dissection/, 'I71.00'], [/ruptured.{0,15}(aaa|aneurysm)|aneurysm.{0,15}ruptur/, 'I71.3'],
+    [/cardiogenic shock/, 'R57.0'], [/pulmonary edema|decompensated heart failure|\bchf\b|\badhf\b/, 'J81.0'],
+    [/pulmonary embol|saddle embol/, 'I26.99'], [/limb ischemia/, 'I74.3'],
+    [/\bards\b/, 'J80'], [/status asthmaticus/, 'J45.902'], [/asthma/, 'J45.901'],
+    [/copd/, 'J44.1'], [/pneumonia/, 'J18.9'], [/pneumothorax/, 'J93.0'],
+    [/respiratory failure.{0,25}hypercapn/, 'J96.02'], [/respiratory failure/, 'J96.01'],
+    [/septic shock/, 'R65.21'], [/sepsis|septic/, 'A41.9'], [/meningitis/, 'G00.9'], [/necrotizing/, 'M72.6'],
+    [/variceal|varices/, 'I85.01'], [/gi bleed|hematemesis|melena/, 'K92.2'],
+    [/bowel obstruction|\bsbo\b/, 'K56.609'], [/pancreatitis/, 'K85.90'], [/cholecystitis/, 'K81.0'],
+    [/cholangitis/, 'K83.09'], [/appendicitis/, 'K35.80'], [/mesenteric ischemia/, 'K55.069'],
+    [/hepatic failure|liver failure/, 'K72.00'], [/perforat/, 'K63.1'],
+    [/\bdka\b|ketoacidosis/, 'E10.10'], [/\bhhs\b|hyperosmolar/, 'E11.00'], [/hypoglycemia/, 'E16.2'],
+    [/hyperkalemia/, 'E87.5'], [/hyponatremia/, 'E87.1'], [/acute kidney injury|\baki\b/, 'N17.9'],
+    [/eclampsia/, 'O15.03'], [/hellp/, 'O14.23'], [/preeclampsia/, 'O14.13'],
+    [/abruption/, 'O45.93'], [/previa/, 'O44.13'], [/postpartum hem/, 'O72.1'], [/preterm labor/, 'O60.10X0'],
+    [/nitrogen bubbles|decompression|\bbends\b/, 'T70.3XXA'], [/drown|submersion/, 'T75.1XXA'],
+    [/carbon monoxide/, 'T58.94XA'], [/heat stroke/, 'T67.01XA'], [/hypothermia/, 'T68.XXXA'],
+    [/anaphyla/, 'T78.2XXA'], [/opioid|heroin|fentanyl overdose|narcan/, 'T40.4X1A'], [/overdose/, 'T50.901A'],
+    [/snake|envenomation/, 'T63.001A'], [/electrocut|lightning/, 'T75.4XXA'],
+    [/inhalation (injury|burn)/, 'T27.0XXA'], [/\bburns?\b/, 'T31.20'],
+    [/traumatic brain|\btbi\b|head injury/, 'S06.9X9A'], [/epidural hematoma/, 'S06.4X9A'],
+    [/hemopneumothorax/, 'S27.2XXA'], [/hemothorax/, 'S27.1XXA'], [/flail/, 'S22.42XA'],
+    [/splenic (lac|injur|ruptur)/, 'S36.09XA'], [/liver lac/, 'S36.119A'],
+    [/pelvic fracture/, 'S32.9XXA'], [/femur fracture/, 'S72.90XA'], [/c-?spine fracture|cervical fracture/, 'S12.9XXA'],
+    [/amputat/, 'S78.919A'], [/compartment syndrome/, 'M79.A21'],
+    [/multisystem trauma|polytrauma|multiple injuries/, 'T07.XXXA'], [/traumatic shock/, 'T79.4XXA'],
+  ];
+  for (var i = 0; i < map.length; i++) {
+    if (map[i][0].test(t) && ICD_DESC[map[i][1]]) return map[i][1] + ' — ' + ICD_DESC[map[i][1]];
+  }
+  return null;
 }
 function crewRows(name) {
   var log = getLog(), rows = [];
