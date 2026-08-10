@@ -377,6 +377,15 @@ button.primary:hover { filter: brightness(1.07); }
       </div>
 
       <div class="card">
+        <h2>AI Deep Review (optional)</h2>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sends the chart to Anthropic's Claude, which reads it like a human reviewer instead of keyword matching. Requires an API key from <b>console.anthropic.com</b> (stored only on this device). The chart text is transmitted to Anthropic's servers for analysis, so use de-identified charts unless your organization has a healthcare data agreement in place. Typical cost is a few cents per chart.</div>
+        <label>Anthropic API Key</label>
+        <input type="password" id="apikey" placeholder="sk-ant-..." autocomplete="off">
+        <button class="primary" id="aibtn" style="background:#5b3fb8;margin-top:10px">AI Deep Review</button>
+        <div id="aistatus" style="font-size:12.5px;color:var(--muted);margin-top:6px"></div>
+      </div>
+
+      <div class="card">
         <h2>Billing &mdash; ICD-10 &amp; Transport Codes</h2>
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Completed by the QI reviewer or billing office, not the crew. This section never affects the documentation score.</div>
         <div class="row2">
@@ -1029,6 +1038,9 @@ function render() {
     if (state.riskHits.some(function (h) { return h.cat === 'harm'; })) {
       line += ' Risk Management review flagged; see the Risk Management Screen (alert only, not scored).';
     }
+    if (state.aiReviewed && state.aiNote) {
+      line += ' AI reviewer assessment: ' + state.aiNote;
+    }
     if (tt.response !== null) line += ' Response time ' + tt.response + ' min.';
     if (tt.ground !== null) line += ' ' + (state.mission === 'scene' ? 'Scene time ' : 'Land-to-takeoff ') + tt.ground + ' min.';
     line += ' Documentation score ' + s.score + '/100 (' + g[0] + ').';
@@ -1087,12 +1099,14 @@ function render() {
       var card = document.createElement('div');
       card.className = 'crit ' + r.status;
       var mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? '✗' : r.status === 'na' ? '–' : '?';
+      var aiBadge = r.ai ? ' <span style="font-size:9.5px;font-weight:800;letter-spacing:0.05em;color:#5b3fb8;border:1px solid #5b3fb8;border-radius:4px;padding:0 4px;vertical-align:middle">AI</span>' : '';
       var html = '<div class="head"><div class="mark">' + mark + '</div><div style="flex:1">' +
-                 '<div class="title">' + esc(c.title) + '</div>' +
+                 '<div class="title">' + esc(c.title) + aiBadge + '</div>' +
                  '<div class="req">' + esc(c.req) + '</div>';
       if (r.status === 'pass' && r.found) html += '<div class="found">“' + esc(r.found) + '”</div>';
       if (r.status === 'review' && r.found) html += '<div class="why" style="border-color:#eeda9e;background:#fffbf0;color:#7a5a00"><b style="color:var(--amber)">Verify:</b> ' + esc(r.found) + '</div>';
       if (r.status === 'fail') html += '<div class="why"><b>Why this matters:</b> ' + esc(c.why) + '</div>';
+      if (r.ai && r.aiNote && r.status !== 'pass') html += '<div class="hint"><b>AI reviewer:</b> ' + esc(r.aiNote) + '</div>';
       if (r.status === 'na') html += '<div class="hint">' + esc(c.naText || 'Not applicable to this mission profile.') + '</div>';
       if (r.status === 'pass' && !r.found && r.overridden) html += '<div class="found">Marked present by reviewer override.</div>';
       if (!r.inapplicable) {
@@ -1686,6 +1700,147 @@ document.getElementById('savenewbtn').addEventListener('click', function () {
   }, { once: true });
   window.print();
 });
+
+/* ---------- AI Deep Review: Claude reads the chart like a human reviewer ----------
+   Direct browser call to the Anthropic Messages API (claude-opus-5) with structured
+   outputs so the verdicts come back as validated JSON. The user supplies their own
+   API key (stored only in this device's localStorage). */
+var AI_MODEL = 'claude-opus-5';
+
+document.getElementById('apikey').value = localStorage.getItem('tsqi_apikey') || '';
+document.getElementById('apikey').addEventListener('input', function () {
+  try { localStorage.setItem('tsqi_apikey', this.value.trim()); } catch (e) {}
+});
+
+function aiSchema() {
+  return {
+    type: 'object',
+    properties: {
+      criteria: { type: 'array', items: { type: 'object', properties: {
+        id: { type: 'string' },
+        status: { type: 'string', enum: ['present', 'missing', 'na'] },
+        evidence: { type: 'string' },
+        note: { type: 'string' }
+      }, required: ['id', 'status', 'evidence', 'note'], additionalProperties: false } },
+      denial_language: { type: 'array', items: { type: 'object', properties: {
+        phrase: { type: 'string' },
+        context: { type: 'string' },
+        suggested_rewrite: { type: 'string' }
+      }, required: ['phrase', 'context', 'suggested_rewrite'], additionalProperties: false } },
+      risk_flags: { type: 'array', items: { type: 'object', properties: {
+        category: { type: 'string', enum: ['procedure', 'harm'] },
+        label: { type: 'string' },
+        context: { type: 'string' }
+      }, required: ['category', 'label', 'context'], additionalProperties: false } },
+      overall_note: { type: 'string' }
+    },
+    required: ['criteria', 'denial_language', 'risk_flags', 'overall_note'],
+    additionalProperties: false
+  };
+}
+
+var AI_SYSTEM = 'You are a critical care flight documentation QI reviewer for Trauma Star, Monroe County Fire Rescue\'s air medical program. You audit charts for medical necessity, CAMTS compliance, and reimbursement readiness per the EMS Director\'s documentation briefing. The insurance reviewer was not on the aircraft: if something is not documented, it did not happen. Evaluate only what the chart text actually supports.\n\nFor each criterion: status "present" only when the chart clearly documents it, with the exact supporting text quoted verbatim in evidence (under 200 characters); "missing" when it is not documented (evidence empty, note briefly says what is absent); "na" when the criterion\'s precondition does not apply to this chart (for example pain scoring when no pain or analgesic is mentioned, or a hypoxia response when no hypoxia occurred). Judge substance, not wording: accept clinical synonyms, abbreviations, and any reasonable phrasing. Do not penalize a scene call for lacking labs, imaging, a formal diagnosis, or a sending physician.\n\nAlso list denial language: any use of "stable", "routine", "without incident", "WNL", "uneventful", "no complaints", or similar wording a payer reads as not needing air transport, each with a suggested rewrite describing active management (never flag "unstable" or "stabilizing"). And list risk management flags: high-acuity procedures (intubation, surgical airway, chest tube or decompression, cardiac or respiratory arrest, cardioversion, blood products, central line or IO) as category "procedure", and possible harm or deviation from standard (failed or multiple attempts, esophageal intubation, dislodged tube, medication error, equipment failure, significant desaturation, arrest during transport, protocol deviation) as category "harm". These are review alerts, not deficits. Keep every note to one or two sentences. In overall_note, give a two or three sentence QI assessment of the chart.';
+
+function aiApplicableCriteria() {
+  return CRITERIA.filter(applicable).map(function (c) {
+    return { id: c.id, title: c.title, requirement: c.req };
+  });
+}
+
+document.getElementById('aibtn').addEventListener('click', function () {
+  var st = document.getElementById('aistatus');
+  var key = (document.getElementById('apikey').value || '').trim();
+  var text = document.getElementById('chart').value;
+  if (!key) { st.textContent = 'Enter your Anthropic API key first (console.anthropic.com, then API Keys).'; return; }
+  if (!text.trim()) { st.textContent = 'Paste or upload the chart first.'; return; }
+  checkHeader();
+  analyze();  /* establishes mission profile applicability and the regex baseline */
+
+  var btn = document.getElementById('aibtn');
+  btn.disabled = true;
+  st.textContent = 'AI is reading the chart... this typically takes 30 to 90 seconds.';
+
+  var userMsg = 'Mission type: ' + (state.mission === 'scene' ? 'scene call (911 response; flight crew chose the destination)' : 'interfacility transport (sending physician arranged)') +
+    '. Intubated/ventilated: ' + (state.intub === 'yes' ? 'yes' : 'no') +
+    '. Medication infusions prior to transport: ' + (state.meds === 'yes' ? 'yes' : 'no') +
+    '.\n\nCriteria to evaluate (return one entry per id):\n' + JSON.stringify(aiApplicableCriteria()) +
+    '\n\nChart documentation:\n<chart>\n' + text + '\n</chart>';
+
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 300000);
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    signal: controller.signal,
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'server-side-fallback-2026-07-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      max_tokens: 16000,
+      fallbacks: 'default',
+      system: AI_SYSTEM,
+      output_config: { format: { type: 'json_schema', schema: aiSchema() } },
+      messages: [{ role: 'user', content: userMsg }]
+    })
+  }).then(function (resp) {
+    return resp.json().then(function (data) { return { ok: resp.ok, status: resp.status, data: data }; });
+  }).then(function (r) {
+    clearTimeout(timer);
+    btn.disabled = false;
+    if (!r.ok) {
+      var msg = (r.data && r.data.error && r.data.error.message) || ('HTTP ' + r.status);
+      if (r.status === 401) msg = 'Invalid API key. Check the key from console.anthropic.com.';
+      if (r.status === 429) msg = 'Rate limited by the API. Wait a minute and try again.';
+      st.textContent = 'AI review failed: ' + msg;
+      return;
+    }
+    if (r.data.stop_reason === 'refusal') {
+      st.textContent = 'The AI declined to process this chart (safety classifier). The keyword analysis above still stands.';
+      return;
+    }
+    var textBlock = (r.data.content || []).filter(function (b) { return b.type === 'text'; })[0];
+    if (!textBlock) { st.textContent = 'AI review returned no result. The keyword analysis above still stands.'; return; }
+    var parsed;
+    try { parsed = JSON.parse(textBlock.text); }
+    catch (e) { st.textContent = 'Could not parse the AI result. The keyword analysis above still stands.'; return; }
+
+    /* merge AI verdicts over the regex baseline */
+    parsed.criteria.forEach(function (v) {
+      var r2 = state.results[v.id];
+      if (!r2 || r2.inapplicable) return;
+      r2.status = v.status === 'present' ? 'pass' : v.status === 'missing' ? 'fail' : 'na';
+      r2.auto = r2.status;
+      r2.overridden = false;
+      r2.found = v.status === 'present' && v.evidence ? v.evidence : null;
+      r2.aiNote = v.note || null;
+      r2.ai = true;
+    });
+    state.langHits = parsed.denial_language.map(function (d) {
+      return { word: '"' + d.phrase + '"', fix: d.suggested_rewrite, ctx: d.context };
+    });
+    state.riskHits = parsed.risk_flags.map(function (f) {
+      return { cat: f.category, label: f.label, ctx: f.context };
+    });
+    state.aiNote = parsed.overall_note || '';
+    state.aiReviewed = true;
+    render();
+    var u = r.data.usage || {};
+    var cost = ((u.input_tokens || 0) * 5 + (u.output_tokens || 0) * 25) / 1000000;
+    st.textContent = 'AI review complete (' + (r.data.model || AI_MODEL) + '). Approximate cost: $' + cost.toFixed(3) + '. Reviewer overrides still apply on any item.';
+  }).catch(function (err) {
+    clearTimeout(timer);
+    btn.disabled = false;
+    st.textContent = err.name === 'AbortError'
+      ? 'AI review timed out after 5 minutes. Try again.'
+      : 'AI review failed: ' + err.message + '. Check your internet connection.';
+  });
+});
+
 ['f_date','f_oca','f_aircraft','f_cc','f_calltype','f_dx','f_rn','f_medic','f_pilot','f_pickup','f_dropoff','f_comments','f_reviewer','f_revdate'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); save(); });
 });
