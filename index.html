@@ -499,7 +499,7 @@ var CRITERIA = [
     title:'Requesting Agency',
     req:'The sending organization that initiated the request for medical transport.',
     why:'The payer must see who initiated the request. Without a documented requesting agency, the reviewer cannot establish that the transport originated from a legitimate medical request, and the claim starts from a position of doubt.',
-    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(sending|referring)\s+(agency|facility|hospital)/i, /dispatch(ed)?\s+(by|per|from)/i] },
+    rx:[/request(ing|ed)?\s+(agency|by|from)/i, /(sending|referring)\s+(agency|facility|hospital|physician|provider)/i, /dispatch(ed)?\s+(by|per|from)/i, /transfer(red)?[^.\n]{0,60}?from\s+[A-Z]/] },
   { id:'agency_scene', sec:'Transport Request & Medical Necessity', w:3, mission:'scene',
     title:'Requesting Agency (Ground Unit)',
     req:'The ground unit or agency that requested the aircraft: Rescue, Medic, Engine, fire rescue, county EMS.',
@@ -524,7 +524,7 @@ var CRITERIA = [
     title:'Clinical Services Not Available at Pickup Location',
     req:'Specify services, treatments, or interventions the patient required that were not available at the pickup location.',
     why:'This is the core of medical necessity. If the chart does not state what the patient needed that the current location could not provide, the reviewer concludes the patient could have stayed, and denies the claim.',
-    rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob|comprehensive|primary)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i, /not\s+capable/i, /cannot\s+(provide|manage|perform|treat)/i, /requir(es|ed|ing)[^.\n]{0,50}(neurosurg|cath|thrombectomy|trauma\s+center|stroke\s+center|icu|ecmo|surg|interventional)/i] },
+    rx:[/not\s+(immediately\s+)?available/i, /unavailable/i, /\blacks?\b/i, /no\s+(trauma|neuro|cath|icu|surgical|pediatric|ob|comprehensive|primary)/i, /(beyond|exceed(s|ing)?)\s+.{0,25}(capabilit|scope)/i, /not\s+capable/i, /cannot\s+(provide|manage|perform|treat)/i, /(did|does)\s+not\s+have/i, /critical.?access\s+hospital/i, /higher\s+level\s+of\s+care/i, /without\s+the\s+(necessary|trauma|surgical|vascular)/i, /requir(es|ed|ing)[^.\n]{0,50}(neurosurg|cath|thrombectomy|trauma\s+center|stroke\s+center|icu|ecmo|surg|interventional|vascular)/i] },
   { id:'cond_ift', sec:'Transport Request & Medical Necessity', w:3, mission:'ift',
     title:'Patient’s Summarized Condition / Diagnosis',
     req:'The diagnosis from the sending facility as reported to the crew.',
@@ -556,7 +556,7 @@ var CRITERIA = [
     title:'Ground Transport Time Documented',
     req:'Estimated ground time in minutes, or hours and minutes, plus factors that would extend it (weather, traffic, road conditions).',
     why:'"Ground transport time approximately 92 minutes versus 24 minutes by air" is objective and reviewable. Without a time figure, the air-versus-ground comparison cannot be evaluated and the justification weakens.',
-    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i, /ground[^.\n]{0,60}?\d+\s*(min|minute|hour|hr)/i, /\d+\s*(min|minute|hour|hr)s?[^.\n]{0,50}ground/i, /\d+\s*h(ou)?rs?\s*(and\s+)?\d+\s*min/i, /ground\s+eta/i, /eta\s+(by\s+)?ground/i, /ground\s+would\s+take/i, /transport\s+time[^.\n]{0,30}\d+\s*(min|hour|hr)/i] },
+    rx:[/ground\s+(transport\s+)?time\s*[:of]{0,3}\s*(approximately|approx\.?|~)?\s*\d+/i, /\d+\s*min(ute)?s?\s+(by|via)\s+ground/i, /google\s+maps/i, /ground[^.\n]{0,140}?\d+\s*(min|minute|hour|hr)/i, /\d+\s*(min|minute|hour|hr)s?[^.\n]{0,50}ground/i, /\d+\s*h(ou)?rs?\s*(and\s+)?\d+\s*min/i, /\d+\s*h(ou)?rs?\s+or\s+(greater|more|longer)/i, /(require|take)[^.\n]{0,40}\d+\s*(min|minute|hour|hr)/i, /road\s+miles/i, /ground\s+eta/i, /eta\s+(by\s+)?ground/i, /ground\s+would\s+take/i, /transport\s+time[^.\n]{0,30}\d+\s*(min|hour|hr)/i] },
 
   /* --- Destination --- */
   { id:'destination', sec:'Destination', w:5,
@@ -580,7 +580,7 @@ var CRITERIA = [
     title:'Medications / Infusions Prior to Assessment',
     req:'All current infusions and medications from the sending facility documented in the Medication/Infusions Prior to Assessment section.',
     why:'The infusions running before your assessment are part of the proof that the patient required care beyond paramedic scope. They also close the loop between the sending facility’s treatment and yours.',
-    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i, /no\s+(meds|medications|infusions)\s+(prior|running|given|administered)?/i, /med(ication)?s?\s+(given|administered|received)\s+(prior|by)/i, /home\s+med(ication)?s/i, /medications?\s*:/i] },
+    rx:[/prior\s+to\s+(our\s+)?assessment/i, /infusion(s)?\s+(running|in\s+progress|prior|continued)/i, /drips?\s+(running|infusing)/i, /no\s+(meds|medications|infusions)\s+(prior|running|given|administered)?/i, /med(ication)?s?\s+(given|administered|received)\s+(prior|by)/i, /home\s+med(ication)?s/i, /medications?\s*:/i, /reported\s+taking/i, /saline.?locked?/i, /hep.?lock/i, /(taking|on)\s+(plavix|clopidogrel|warfarin|coumadin|eliquis|apixaban|xarelto|rivaroxaban|anticoagulant|blood\s+thinner|aspirin|metformin|insulin)/i] },
   { id:'meds_scene', sec:'Clinical Record', w:3, mission:'scene',
     title:'Medications Given Prior to Flight',
     req:'Any medications given by ground crews or first responders before the flight, or a note that none were given. There is no infusion list on a scene call.',
@@ -609,7 +609,7 @@ var CRITERIA = [
     special:'conditional', trigLabel:'Hypoxia', respLabel:'intervention',
     naText:'No hypoxia or desaturation documented in this chart — check not applicable.',
     trig:[/hypox(ia|ic|emia)/i, /desaturat/i, /spo2\s*(of|at|dropped\s*(to)?|fell\s*(to)?|down\s*(to)?)?\s*[:=]?\s*[0-8]\d\b/i, /sats?\s+(dropped|fell|of|at)\s*(to)?\s*[0-8]\d\b/i],
-    rx:[/(increased|titrated|placed|applied|administered|started)\s+(on\s+)?(fio2|o2|oxygen|nrb|high.?flow)/i, /(fio2|o2|oxygen)\s+(increased|titrated|weaned|applied|administered|to\s+\d)/i, /non.?rebreather|\bnrb\b|nasal\s+cannula|high.?flow/i, /\bbvm\b|bag(ged|ging)/i, /intubat/i, /peep\s+(increased|titrated|to\s+\d)/i, /suction(ed|ing)?/i, /reposition(ed|ing)?|jaw\s+thrust|head.?tilt|airway\s+(opened|repositioned|maneuver)/i, /cpap|bipap/i, /recruitment\s+maneuver/i] },
+    rx:[/(increased|titrated|placed|applied|administered|started)\s+(on\s+)?(fio2|o2|oxygen|nrb|high.?flow)/i, /(fio2|o2|oxygen)\s+(was\s+)?(increased|titrated|weaned|applied|administered|maintained|initiated|to\s+\d)/i, /non.?rebreather|\bnrb\b|nasal\s+cannula|high.?flow/i, /\d+\s*l(pm)?\/?\s*min\s+(via|per|by)?\s*(nc|nasal|nrb|mask)?/i, /\bbvm\b|bag(ged|ging)/i, /intubat/i, /peep\s+(increased|titrated|to\s+\d)/i, /suction(ed|ing)?/i, /reposition(ed|ing)?|jaw\s+thrust|head.?tilt|airway\s+(opened|repositioned|maneuver)/i, /cpap|bipap/i, /recruitment\s+maneuver/i] },
 
   /* --- CAMTS & safety --- */
   { id:'ptemp', sec:'CAMTS Required on Every Patient', w:3,
@@ -638,7 +638,7 @@ var CRITERIA = [
     title:'Radio Report to Receiving Hospital (time + content)',
     req:'Every radio/communication report documented with the time and the content.',
     why:'The radio report is the receiving team’s first clinical picture and proves the hospital activated the right resources. "Trauma alert called to receiving facility at 1432" is direct evidence the patient required capabilities only that destination could provide. A radio call that is not documented cannot be proven later.',
-    rx:[/radio\s+report/i, /report\s+(called|given|provided)/i, /notif(ied|ication)/i, /(trauma|stroke|stemi)\s+alert\s+(called|activated)/i, /entry\s+note/i] },
+    rx:[/radio\s+(report|contact)/i, /(radio|phone)\s+contact\s+established/i, /contact\s+established\s+with/i, /report\s+(called|given|provided)/i, /notif(ied|ication)/i, /(trauma|stroke|stemi)\s+alert\s+(called|activated)/i, /entry\s+note/i, /receiving\s+facility\s+was\s+(provided|given|advised|updated)/i] },
 
   /* --- Ventilator --- */
   { id:'vent1', sec:'Ventilator: Hamilton Monitoring Menus', w:4, vent:true,
@@ -771,8 +771,9 @@ function detect(c, text) {
   }
   if (c.special === 'times') {
     var times = text.match(/\b([01]?\d|2[0-3]):?[0-5]\d\b/g) || [];
-    var vitals = text.match(/\b(bp|hr|rr|spo2|map|etco2)\b/gi) || [];
+    var vitals = text.match(/\b(bp|hr|rr|spo2|map|etco2|blood\s+pressure|heart\s+rate|respiratory\s+rate|pulse)\b/gi) || [];
     if (times.length >= 3 && vitals.length >= 2) return { status:'pass', found:times.length + ' timestamps and ' + vitals.length + ' vital-sign references found' };
+    if (/serial\s+(vital|assessment|reassessment)/i.test(text)) return { status:'review', found:'Serial vitals are described narratively (ranges, trends). Verify timed vital-sign sets are recorded in the flowsheet; ranges prove monitoring happened, timed sets prove when.' };
     if (times.length >= 1) return { status:'review', found:'Only ' + times.length + ' timestamp(s) detected. Confirm serial reassessments cover the full patient contact time.' };
     return { status:'fail', found:null };
   }
