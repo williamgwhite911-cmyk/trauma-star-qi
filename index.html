@@ -580,6 +580,10 @@ button.primary:hover { filter: brightness(1.07); }
         <div class="pillrow" id="pills"></div>
         <div class="legend noprint">Use the Reviewer Override buttons on any item the automatic scan got wrong &mdash; the score and summary readjust instantly. Amber items need reviewer judgment.</div>
       </div>
+      <div class="card" id="narccard" style="display:none;border:2px solid var(--red)">
+        <h2>&#9888; Controlled Substance Alert</h2>
+        <div id="narcout"></div>
+      </div>
       <div class="card" id="summarycard" style="display:none">
         <h2>Call Summary</h2>
         <div id="summarytext"></div>
@@ -864,6 +868,12 @@ var BASE_CRITERIA = [
     req:'General statements in the narrative — stable, afebrile, no distress, alert and oriented, hemodynamically stable, unlabored, ventilating adequately — must agree with the vital signs, labs, and scores documented alongside them.',
     why:'The narrative and the flowsheet are read together, and any sentence describing a patient the numbers do not support costs the whole record its credibility. It is also the exact pattern that turns a defensible chart into a contradicted one in deposition: the reviewer only has to find one claim the data disproves to question every other claim in the document.',
     special:'narrmatch' },
+  { id:'narcotic', sec:'Controlled Substances', w:5,
+    title:'Controlled Substance Accountability',
+    req:'Every scheduled drug given by the flight crew documented with drug, dose, route, and time; the indication; the reassessment after the dose; respiratory rate and sedation level around it; the amount wasted or an explicit statement that none was; the name of the crew member who witnessed the waste; and the controlled-substance record, count, or kit seal that reconciles the kit.',
+    why:'This is the only documentation on the aircraft that is audited by an outside agency rather than a payer. A narcotic that goes into a patient without a matching waste entry and a named witness cannot be reconciled against the kit, and an unreconciled dose is what a diversion investigation is built on. The crew member who gave it carries that exposure personally, on their own licence, and the only defence is the line they wrote at the time.',
+    special:'narcotic',
+    naText:'No controlled substance was given by the flight crew on this chart.' },
   { id:'signature', sec:'Signature & Authorization', w:5,
     title:'Beneficiary Signature or a Complete Substitute',
     req:'The patient\'s signature authorizing the claim and the release of medical information; or an authorized representative\'s signature with printed name and relationship; or, when neither is possible, the documented reason the patient could not sign plus a contemporaneous attestation from a receiving-facility representative or other provider employee showing the date and time the patient was received.',
@@ -984,7 +994,7 @@ var RISK = [
     rx:/(patient|pt)\s+(fell|dropped)|fall\s+(during|from)\s+(loading|transfer)/i }
 ];
 
-var state = { mission:null, mode:'air', intub:null, meds:null, results:{}, analyzed:false, langHits:[], riskHits:[], vitals:null, vitalTableRows:[], vitalTablePains:[], narrative:null, clinical:null, concord:null, signature:null,
+var state = { mission:null, mode:'air', intub:null, meds:null, results:{}, analyzed:false, langHits:[], riskHits:[], vitals:null, vitalTableRows:[], vitalTablePains:[], narrative:null, narcotics:null, clinical:null, concord:null, signature:null,
   aiDiscrep:null, aiCare:null, aiVitals:null, aiMeds:null, aiProcs:null, aiLabs:null };
 
 function applicable(c) {
@@ -1069,6 +1079,17 @@ function detect(c, text) {
     if (!nn) return { status:'na', found:null };
     if (!nn.conflicts.length) return { status:'pass', found:'No statement in the narrative contradicts the vital signs charted alongside it.' };
     return { status:'fail', found:null, narrNote: nn.conflicts.map(function (x) { return x.text; }).join(' ') };
+  }
+  if (c.special === 'narcotic') {
+    var nz = state.narcotics;
+    if (!nz || !nz.crewItems.length) return { status:'na', found:null };
+    var withGaps = nz.crewItems.filter(function (x) { return x.gaps.length; });
+    if (!withGaps.length) return { status:'pass', found:'Full accountability documented for ' + nz.crewItems.map(function (x) { return x.name; }).join(', ') + ' — dose, waste, witness, and record.' };
+    var missingWaste = withGaps.filter(function (x) { return !x.waste || !x.witness; });
+    if (missingWaste.length) return { status:'fail', found:null,
+      narcNote: 'No waste entry or named witness for ' + missingWaste.map(function (x) { return x.name; }).join(', ') + '.' };
+    return { status:'review', found:'Waste and witness are documented, but these are still missing: ' +
+      withGaps.map(function (x) { return x.name + ' — ' + x.gaps.join(', '); }).join('; ') + '.' };
   }
   if (c.special === 'signature') {
     var sg = state.signature || assessSignature(text);
@@ -1351,6 +1372,7 @@ function analyze() {
   state.vitals = assessVitals(text);
   state.narrative = assessNarrative(text);
   state.clinical = assessClinical(text);
+  state.narcotics = assessNarcotics(text);
   state.concord = buildConcordance(text);
   CRITERIA = BASE_CRITERIA.concat(state.concord.criteria);
   state.results = {};
@@ -1473,6 +1495,7 @@ function render() {
     rf.innerHTML = '<div class="okflag">✓ No risk management triggers detected. No high-acuity procedures or possible-harm indicators found in the documentation.</div>';
   }
 
+  renderNarcotics();
   renderVitals();
   renderPain();
   renderClinical();
@@ -1510,6 +1533,11 @@ function render() {
       if (pn.conflicts.length) line += ' PAIN DOCUMENTATION CONFLICT: ' + pn.conflicts[0].text;
       if (pn.level === 'fail') line += ' ' + pn.headline;
       if (state.narrative.conflicts.length) line += ' Narrative conflicts with the charted data in ' + state.narrative.conflicts.length + ' place(s).';
+    }
+    if (state.narcotics && state.narcotics.crewItems.length) {
+      var gapNarcs = state.narcotics.crewItems.filter(function (x) { return x.gaps.length; });
+      line += ' CONTROLLED SUBSTANCE: ' + state.narcotics.crewItems.map(function (x) { return x.name; }).join(', ') +
+        ' given by the flight crew' + (gapNarcs.length ? ' — accountability incomplete on ' + gapNarcs.map(function (x) { return x.name; }).join(', ') + '.' : ', fully documented.');
     }
     if (state.signature && state.signature.level === 'fail') {
       line += ' BILLING HOLD: ' + state.signature.headline;
@@ -1592,6 +1620,12 @@ function render() {
         improve.push('Narrative contradicts the chart: ' + cf.text + ' Reword it to match what was measured, or explain the difference.');
       });
       if (!state.narrative.conflicts.length) well.push('Narrative statements agree with the vital signs charted alongside them');
+    }
+    if (state.narcotics) {
+      state.narcotics.crewItems.forEach(function (x) {
+        if (!x.gaps.length) well.push('Controlled-substance accountability complete for ' + x.name);
+        else improve.push('CONTROLLED SUBSTANCE — ' + x.name + ' (Schedule ' + x.sched + ') given by the crew is missing ' + x.gaps.join('; ') + '.');
+      });
     }
     if (state.signature) {
       if (state.signature.level === 'pass') well.push('Signature and authorization requirement satisfied');
@@ -1683,6 +1717,7 @@ function render() {
       if (r.status === 'pass' && r.found) html += '<div class="found">“' + esc(r.found) + '”</div>';
       if (r.status === 'review' && r.found) html += '<div class="why" style="border-color:#eeda9e;background:#fffbf0;color:#7a5a00"><b style="color:var(--amber)">Verify:</b> ' + esc(r.found) + '</div>';
       if (r.status === 'fail') html += '<div class="why"><b>Why this matters:</b> ' + esc(c.why) + '</div>';
+      if (r.narcNote) html += '<div class="why"><b>Controlled-substance gap:</b> ' + esc(r.narcNote) + '</div>';
       if (r.painNote) html += '<div class="why"><b>Contradiction found:</b> ' + esc(r.painNote) + '</div>';
       if (r.narrNote) html += '<div class="why"><b>Contradiction found:</b> ' + esc(r.narrNote) + '</div>';
       if (r.items && r.items.length) {
@@ -2639,6 +2674,133 @@ function renderVitals() {
       '<div class="fix">CAMTS requires a temperature, a glucose, and a pain assessment on every patient — not only on the patients where you expect them to be abnormal. A missing value is indistinguishable from a value never taken.</div></div>';
   }
   out.innerHTML = html + aiVitalsSection();
+}
+
+/* ============ Controlled substances given by the flight crew ============
+   A narcotic carries an accountability trail nothing else on the aircraft does:
+   the dose given, the amount wasted, a witness to the waste, and the entry that
+   reconciles the kit. A missing waste line is not a charting nicety — it is the
+   gap a DEA audit, a diversion investigation, and a licence action all start
+   from. This screen fires whenever a scheduled drug appears as crew-given. */
+var CONTROLLED_MEDS = [
+  { name: 'Fentanyl',       sched: 'II',  rx: /\bfentanyl\b|\bsublimaze\b/i },
+  { name: 'Morphine',       sched: 'II',  rx: /\bmorphine\b/i },
+  { name: 'Hydromorphone',  sched: 'II',  rx: /\bhydromorphone\b|\bdilaudid\b/i },
+  { name: 'Meperidine',     sched: 'II',  rx: /\bmeperidine\b|\bdemerol\b/i },
+  { name: 'Remifentanil',   sched: 'II',  rx: /\bremifentanil\b|\bultiva\b/i },
+  { name: 'Sufentanil',     sched: 'II',  rx: /\bsufentanil\b|\bsufenta\b/i },
+  { name: 'Oxycodone',      sched: 'II',  rx: /\boxycodone\b|\bpercocet\b|\broxicodone\b/i },
+  { name: 'Hydrocodone',    sched: 'II',  rx: /\bhydrocodone\b|\bnorco\b|\bvicodin\b/i },
+  { name: 'Methadone',      sched: 'II',  rx: /\bmethadone\b/i },
+  { name: 'Ketamine',       sched: 'III', rx: /\bketamine\b|\bketalar\b/i },
+  { name: 'Buprenorphine',  sched: 'III', rx: /\bbuprenorphine\b|\bbuprenex\b/i },
+  { name: 'Midazolam',      sched: 'IV',  rx: /\bmidazolam\b|\bversed\b/i },
+  { name: 'Lorazepam',      sched: 'IV',  rx: /\blorazepam\b|\bativan\b/i },
+  { name: 'Diazepam',       sched: 'IV',  rx: /\bdiazepam\b|\bvalium\b/i },
+  { name: 'Phenobarbital',  sched: 'IV',  rx: /\bphenobarbital\b|\bluminal\b/i },
+  { name: 'Tramadol',       sched: 'IV',  rx: /\btramadol\b|\bultram\b/i }
+];
+var NARC_RX = {
+  time:    /\b(?:at|@|time)\s*\.?\s*([01]?\d|2[0-3]):?[0-5]\d\b|\b([01]\d|2[0-3])[0-5]\d\s*(?:hrs?|hours)?\b/i,
+  waste:   /\bwast(?:e|ed|age|ing)\b|\bdiscard(?:ed|ing)?\b|\bno\s+waste\b|\bnone\s+wasted\b|\bentire\s+(?:dose|vial|amount)\s+(?:given|administered)\b|\bfull\s+(?:dose|vial)\s+(?:given|administered)\b|\bremaining\s+\d+\s*(?:mcg|mg|m[lL])\b/i,
+  witness: /\bwitness(?:ed)?\b|\bco.?sign(?:ed|ature)?\b|\bsecond\s+(?:provider|crew\s*member|signature|set\s+of\s+eyes)\b|\bverified\s+by\b|\bobserved\s+by\b|\battested\s+by\b/i,
+  log:     /\b(?:controlled\s+substance|narcotic|cs)\s*(?:log|record|form|count|inventory|sheet|tracking)\b|\bseal\s*(?:#|no\.?|number)?\s*[:\-]?\s*\w+|\bkit\s*(?:#|no\.?|number|seal)\b|\bcount(?:ed)?\s+(?:with|by|verified)\b|\bchain\s+of\s+custody\b|\bpyxis\b|\bomnicell\b/i,
+  indic:   /\bpain\s*(?:score|level|scale)?\s*[:=]?\s*\d|\brass\b|\bsedat\w+|\banalgesi\w+|\bagitat\w+|\bprocedur\w+|\bintubat\w+|\brsi\b|\bcombativ\w+|\bseizure\b|\bshiver\w+|\bsynchron\w+/i,
+  reassess:/\b(?:pain|rass|sedation|respiratory\s+rate|\brr\b|spo2|level\s+of\s+consciousness|loc)\b[^.\n]{0,45}\b(?:improv\w+|decreas\w+|increas\w+|reassess\w+|recheck\w+|unchanged|now\s+\d|to\s+\d|after|following|resolv\w+)/i,
+  respMon: /\b(?:respiratory\s+rate|\brr\b|spo2|etco2|end.?tidal|capnograph\w*|ventilat\w+|level\s+of\s+consciousness|sedation\s+scale|rass)\b/i
+};
+function assessNarcotics(text) {
+  var t = text || '';
+  var out = { any: false, items: [], crewCount: 0 };
+  CONTROLLED_MEDS.forEach(function (d) {
+    d.rx.lastIndex = 0;
+    var m = d.rx.exec(t);
+    if (!m) return;
+    var win = medWindow(t, m.index, m[0].length);
+    var wide = t.slice(Math.max(0, m.index - 250), Math.min(t.length, m.index + 500));
+    var attrib = attributeCare(win);
+    /* care already running when the crew arrived is the sending facility's
+       accountability, not this crew's */
+    var crewGiven = attrib.by === 'crew' || attrib.by === 'unclear' || attrib.by === 'both';
+    var item = {
+      name: d.name, sched: d.sched, ctx: snippet(t, m),
+      crewGiven: crewGiven, attrib: attrib,
+      dose: MED_RX.dose.test(win) || MED_RX.wtdose.test(win),
+      route: MED_RX.route.test(win),
+      time: NARC_RX.time.test(win),
+      indication: NARC_RX.indic.test(wide),
+      reassess: NARC_RX.reassess.test(wide),
+      respMon: NARC_RX.respMon.test(wide),
+      /* the waste trail is often written at the end of the chart, not beside
+         the drug, so these three are searched across the whole record */
+      waste: NARC_RX.waste.test(t),
+      witness: NARC_RX.witness.test(t),
+      log: NARC_RX.log.test(t)
+    };
+    item.gaps = [];
+    if (!item.dose) item.gaps.push('the dose');
+    if (!item.route) item.gaps.push('the route');
+    if (!item.time) item.gaps.push('the time it was given');
+    if (!item.indication) item.gaps.push('the indication');
+    if (!item.reassess) item.gaps.push('the reassessment after the dose');
+    if (!item.respMon) item.gaps.push('respiratory monitoring around the dose');
+    if (!item.waste) item.gaps.push('the waste, or a statement that none was wasted');
+    if (!item.witness) item.gaps.push('the witness to the waste, by name');
+    if (!item.log) item.gaps.push('the controlled-substance record, count, or kit seal');
+    out.items.push(item);
+    if (crewGiven) out.crewCount++;
+  });
+  out.any = out.items.length > 0;
+  out.crewItems = out.items.filter(function (x) { return x.crewGiven; });
+  out.priorItems = out.items.filter(function (x) { return !x.crewGiven; });
+  return out;
+}
+function renderNarcotics() {
+  var card = document.getElementById('narccard'), out = document.getElementById('narcout');
+  if (!card || !out) return;
+  var n = state.narcotics;
+  if (!n || !n.any) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  var html = '';
+  if (n.crewItems.length) {
+    var names = n.crewItems.map(function (x) { return x.name + ' (Schedule ' + x.sched + ')'; }).join(', ');
+    var anyGap = n.crewItems.some(function (x) { return x.gaps.length; });
+    html += '<div style="border:2px solid ' + (anyGap ? 'var(--red)' : 'var(--green)') + ';background:' + (anyGap ? 'var(--red-bg)' : '#f2f9f4') + ';border-radius:8px;padding:10px 12px;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:800;letter-spacing:0.03em;color:' + (anyGap ? 'var(--red)' : 'var(--green)') + '">' +
+      (anyGap ? '&#9888; CONTROLLED SUBSTANCE GIVEN BY THE FLIGHT CREW — ACCOUNTABILITY INCOMPLETE' : '&#10003; CONTROLLED SUBSTANCE GIVEN BY THE FLIGHT CREW — ACCOUNTABILITY DOCUMENTED') + '</div>' +
+      '<div style="font-size:13px;font-weight:700;margin-top:3px">' + esc(names) + '</div>' +
+      '<div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">' +
+      (anyGap
+        ? 'Every scheduled drug carried on this aircraft has to reconcile: what was drawn, what went into the patient, what was wasted, and who watched it happen. The gaps below are what a controlled-substance audit or a diversion review would ask this crew to produce.'
+        : 'The dose, the waste, the witness, and the record are all on this chart. This is what a controlled-substance audit expects to find.') +
+      '</div></div>';
+    n.crewItems.forEach(function (it) {
+      var ok = !it.gaps.length;
+      html += '<div class="' + (ok ? 'okflag' : 'flag') + '" style="margin-bottom:6px">' +
+        '<b' + (ok ? ' style="color:var(--green)"' : '') + '>' + (ok ? '✓ ' : '') + esc(it.name) + ' &mdash; Schedule ' + esc(it.sched) +
+        (it.attrib.by === 'both' ? ' (running on arrival, given or titrated by the crew)' : '') +
+        (it.attrib.by === 'unclear' ? ' (the chart does not say who gave this)' : '') + '</b>' +
+        '<div style="font-size:11.5px;color:var(--ink-2);font-style:italic;margin:2px 0">“' + esc(it.ctx) + '”</div>' +
+        '<div style="margin-top:3px">' +
+          gapMark(it.dose, 'dose') + gapMark(it.route, 'route') + gapMark(it.time, 'time') +
+          gapMark(it.indication, 'indication') + gapMark(it.reassess, 'reassessment') +
+          gapMark(it.respMon, 'respiratory monitoring') +
+          gapMark(it.waste, 'waste') + gapMark(it.witness, 'witness') + gapMark(it.log, 'CS record / seal') +
+        '</div>' +
+        (it.gaps.length
+          ? '<div class="fix"><b>Not on the record:</b> ' + esc(it.gaps.join('; ')) + '.</div>'
+          : '') +
+        '</div>';
+    });
+    html += '<div class="flag" style="background:#fff"><b>What closes this out:</b> the drug, dose, route, and clock time; the finding that justified it; the reassessment showing what it did; the respiratory rate and sedation level around the dose; the amount wasted <i>or</i> an explicit "no waste, entire dose given"; the name and title of the crew member who witnessed the waste; and the controlled-substance record, count, or kit seal number that reconciles the kit. Nine lines. A missing waste entry is the single most common finding in a controlled-substance audit, and it is the one that is hardest to explain afterward.</div>';
+  }
+  if (n.priorItems.length) {
+    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px">Controlled substances already running on arrival</div>' +
+      '<div style="font-size:12.5px;color:var(--ink-2)">' +
+      esc(n.priorItems.map(function (x) { return x.name + ' (Schedule ' + x.sched + ')'; }).join(' · ')) +
+      '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">Accountability for these sits with the sending facility. Document the drug, the concentration, and the rate you assumed — and if the crew changed the rate or drew from their own kit, that dose becomes this crew\'s to account for.</div></div>';
+  }
+  out.innerHTML = html;
 }
 
 /* ---------- AI-only review panels ----------
@@ -4706,6 +4868,7 @@ function loadFromLog(key) {
   state.vitals = assessVitals(d.chart || '');
   state.narrative = assessNarrative(d.chart || '');
   state.clinical = assessClinical(d.chart || '');
+  state.narcotics = assessNarcotics(d.chart || '');
   state.concord = buildConcordance(d.chart || '');
   CRITERIA = BASE_CRITERIA.concat(state.concord.criteria);
   state.concord.criteria.forEach(function (c) { if (!state.results[c.id]) state.results[c.id] = detect(c, d.chart || ''); });
@@ -4783,16 +4946,18 @@ function clearForm(silent) {
   state.results = {}; state.analyzed = false;
   state.langHits = []; state.riskHits = [];
   state.vitals = null; state.vitalTableRows = []; state.vitalTablePains = [];
-  state.narrative = null; state.clinical = null; state.concord = null; state.signature = null;
+  state.narrative = null; state.clinical = null; state.concord = null; state.signature = null; state.narcotics = null;
   state.aiReviewed = false; state.aiNote = '';
   state.aiDiscrep = null; state.aiCare = null; state.aiVitals = null;
   state.aiMeds = null; state.aiProcs = null; state.aiLabs = null;
   CRITERIA = BASE_CRITERIA.slice();
   document.querySelectorAll('.tg').forEach(function (e) { e.classList.remove('on'); e.classList.remove('flag'); });
-  ['summarycard','vitalscard','paincard','clinauditcard','concordcard','camtscard','langcard','riskcard','discrepcard','ccarecard']
+  ['summarycard','narccard','vitalscard','paincard','clinauditcard','concordcard','camtscard','langcard','riskcard','discrepcard','ccarecard']
     .forEach(function (id) { var c = document.getElementById(id); if (c) c.style.display = 'none'; });
   document.getElementById('results').innerHTML = '';
   document.getElementById('printheader').innerHTML = '';
+  var nout = document.getElementById('narcout');
+  if (nout) nout.innerHTML = '';
   document.getElementById('autofillnote').textContent = '';
   document.getElementById('extractreport').innerHTML = '';
   document.getElementById('filestatus').textContent = '';
@@ -5255,7 +5420,7 @@ function aiSchema() {
   };
 }
 
-var AI_SYSTEM = 'You are a critical care flight documentation QI reviewer for Trauma Star, Monroe County Fire Rescue\'s air medical program. You audit charts for medical necessity, CAMTS compliance, and reimbursement readiness per the EMS Director\'s documentation briefing. The insurance reviewer was not on the aircraft: if something is not documented, it did not happen. Evaluate only what the chart text actually supports.\n\nFor each criterion: status "present" only when the chart clearly documents it, with the exact supporting text quoted verbatim in evidence (under 200 characters); "missing" when it is not documented (evidence empty, note briefly says what is absent); "na" when the criterion\'s precondition does not apply to this chart (for example pain scoring when no pain or analgesic is mentioned, or a hypoxia response when no hypoxia occurred). Judge substance, not wording: accept clinical synonyms, abbreviations, and any reasonable phrasing. Do not penalize a scene call for lacking labs, imaging, a formal diagnosis, or a sending physician.\n\nAlso list denial language: any use of "stable", "routine", "without incident", "WNL", "uneventful", "no complaints", or similar wording a payer reads as not needing air transport, each with a suggested rewrite describing active management (never flag "unstable" or "stabilizing"). And list risk management flags: high-acuity procedures (intubation, surgical airway, chest tube or decompression, cardiac or respiratory arrest, cardioversion, blood products, central line or IO) as category "procedure", and possible harm or deviation from standard (failed or multiple attempts, esophageal intubation, dislodged tube, medication error, equipment failure, significant desaturation, arrest during transport, protocol deviation) as category "harm". These are review alerts, not deficits. Keep every note to one or two sentences. Several criteria concern vital signs, CAMTS required elements, and whether the assessment and treatment match the charted diagnosis. For vital-sign criteria, judge against age-appropriate ranges for the patient age given above and treat an abnormal value with no documented intervention and no recheck as missing. For the concordance criteria, an element counts as present only when the chart actually contains the finding or the intervention named in the requirement; an explicit statement that something was considered and excluded also counts. Do not invent findings the chart does not contain.\n\nBeyond the criteria, audit the record as a whole and return five more things.\n\nDISCREPANCIES. Read the chart against itself and against the parsed data supplied below, and list every internal contradiction. Look for: times that do not reconcile with each other or with the narrative sequence; a vital sign, lab, or exam finding stated one way in one place and differently in another; a narrative describing a patient who does not match the numbers charted (for example wording implying a comfortable patient alongside a shock-range blood pressure, or a description of adequate ventilation alongside a rising ETCO2); a medication dose that does not match the documented weight or the stated concentration and rate; a drug given despite a documented allergy or contraindication; an intervention referenced later that was never charted as performed, or charted at a time the crew was not with the patient; a diagnosis or impression the assessment does not support; a destination or acceptance that does not match the stated reason for transport; a handoff time preceding the last documented assessment; equipment or monitoring referenced without being established. Severity: critical for anything with patient-safety or medico-legal consequence, major for anything a payer or surveyor would question, minor for internal inconsistencies that are confusing but not consequential. Quote the conflicting text in evidence and say in resolution exactly what the crew should reconcile or add. Return an empty array only when you genuinely find none.\n\nCRITICAL CARE. This is a rotor-wing critical care transport staffed by a flight nurse and flight paramedic. Judge whether the documentation, read on its own, would convince a reviewer that a critical care team was required and that critical care was delivered: assessment depth beyond a paramedic-level exam, advanced or invasive monitoring, titrated infusions, ventilator or advanced airway management, blood products, interpretation of labs and imaging, continuous clinical decision making, and interventions or judgment outside the paramedic scope of practice. In supporting, list the specific charted elements that carry that argument. In missing, list what a critical care chart should contain that this one does not. Be honest: a chart documenting only transport and observation does not support critical care no matter how sick the patient was.\n\nVITALS REVIEW. For every abnormal vital sign in the chart, judged against the patient age given below, report the value, why it is abnormal, whether an intervention addressing it is documented, and whether it was reassessed afterward. Include abnormal values the parsed list below may have missed, including any recorded in narrative prose rather than a flowsheet.\n\nMEDICATION REVIEW. For every medication in the chart, whether pushed, infusing on arrival, or continued in flight, report the drug, the dose and route or rate as charted, and whether the documentation is complete. Flag a missing dose, route, rate, or concentration; a missing indication; a missing documented effect; a dose that does not fit the patient weight or age; duplicate or conflicting entries; and any safety concern such as a paralytic without sedation, a vasopressor without a blood pressure to justify it, or a drug given against a documented allergy.\n\nINTERVENTION REVIEW. For every procedure or intervention performed or continued, including airway, ventilation, vascular access, chest decompression, transfusion, pacing, cardioversion, hemorrhage control, warming, and immobilization, report whether the indication, what was actually done, the confirmation step where one applies, and the patient response are all documented, and name what is missing.\n\nLAB REVIEW. For every laboratory or point-of-care value in the chart, report the test, the value, whether it is abnormal, and whether the chart shows it being acted on, trended, or explicitly accounted for.\n\nPAIN. Pain gets its own pass because it is where charts contradict themselves most often. Compare the pain score in the vital-sign or flowsheet area against every mention of pain in the narrative, and report any disagreement as a discrepancy of major severity in category Pain Documentation, or critical severity when the flowsheet reads 0 out of 10 while the narrative describes a patient in pain. A score that legitimately changed after an analgesic is not a discrepancy; say so and move on. Then, wherever pain is documented and no analgesic was given, check for a stated reason: an allergy or intolerance, the patient declining, hypotension or hemodynamic instability, altered mental status or an airway or neurologic concern, analgesia already given before the crew arrived, medical control direction, or a protocol contraindication. If pain is documented, no analgesic appears, and no reason is stated, report it as a discrepancy of major severity and say in the resolution which reason the crew needs to add. Non-pharmacologic measures alone do not satisfy this; the record still has to say why a medication was not given.\n\nNARRATIVE AGREEMENT. Test every general statement the narrative makes against the numbers charted beside it, and report each contradiction in category Narrative Consistency. Statements to check include stable, within normal limits, afebrile, no acute distress, comfortable, alert and oriented, hemodynamically stable, unlabored breathing, ventilating adequately, normothermic, and euglycemic. A chart may describe a patient one way in one place and the opposite in another only when it also explains the change and when it happened.\n\nSIGNATURE. Treat a missing beneficiary authorization as a discrepancy of critical severity in category Signature and Authorization whenever the chart shows no patient signature, no authorized representative signature with a stated relationship, and no documented reason the patient could not sign paired with a witness attestation naming the person and the time the patient was received. Say plainly in the resolution which of the three pathways the crew should complete.\n\nIn overall_note, give a two or three sentence QI assessment that says whether the assessment, the working diagnosis, and the treatment agree with each other, and whether this chart reads as critical care.';
+var AI_SYSTEM = 'You are a critical care flight documentation QI reviewer for Trauma Star, Monroe County Fire Rescue\'s air medical program. You audit charts for medical necessity, CAMTS compliance, and reimbursement readiness per the EMS Director\'s documentation briefing. The insurance reviewer was not on the aircraft: if something is not documented, it did not happen. Evaluate only what the chart text actually supports.\n\nFor each criterion: status "present" only when the chart clearly documents it, with the exact supporting text quoted verbatim in evidence (under 200 characters); "missing" when it is not documented (evidence empty, note briefly says what is absent); "na" when the criterion\'s precondition does not apply to this chart (for example pain scoring when no pain or analgesic is mentioned, or a hypoxia response when no hypoxia occurred). Judge substance, not wording: accept clinical synonyms, abbreviations, and any reasonable phrasing. Do not penalize a scene call for lacking labs, imaging, a formal diagnosis, or a sending physician.\n\nAlso list denial language: any use of "stable", "routine", "without incident", "WNL", "uneventful", "no complaints", or similar wording a payer reads as not needing air transport, each with a suggested rewrite describing active management (never flag "unstable" or "stabilizing"). And list risk management flags: high-acuity procedures (intubation, surgical airway, chest tube or decompression, cardiac or respiratory arrest, cardioversion, blood products, central line or IO) as category "procedure", and possible harm or deviation from standard (failed or multiple attempts, esophageal intubation, dislodged tube, medication error, equipment failure, significant desaturation, arrest during transport, protocol deviation) as category "harm". These are review alerts, not deficits. Keep every note to one or two sentences. Several criteria concern vital signs, CAMTS required elements, and whether the assessment and treatment match the charted diagnosis. For vital-sign criteria, judge against age-appropriate ranges for the patient age given above and treat an abnormal value with no documented intervention and no recheck as missing. For the concordance criteria, an element counts as present only when the chart actually contains the finding or the intervention named in the requirement; an explicit statement that something was considered and excluded also counts. Do not invent findings the chart does not contain.\n\nBeyond the criteria, audit the record as a whole and return five more things.\n\nDISCREPANCIES. Read the chart against itself and against the parsed data supplied below, and list every internal contradiction. Look for: times that do not reconcile with each other or with the narrative sequence; a vital sign, lab, or exam finding stated one way in one place and differently in another; a narrative describing a patient who does not match the numbers charted (for example wording implying a comfortable patient alongside a shock-range blood pressure, or a description of adequate ventilation alongside a rising ETCO2); a medication dose that does not match the documented weight or the stated concentration and rate; a drug given despite a documented allergy or contraindication; an intervention referenced later that was never charted as performed, or charted at a time the crew was not with the patient; a diagnosis or impression the assessment does not support; a destination or acceptance that does not match the stated reason for transport; a handoff time preceding the last documented assessment; equipment or monitoring referenced without being established. Severity: critical for anything with patient-safety or medico-legal consequence, major for anything a payer or surveyor would question, minor for internal inconsistencies that are confusing but not consequential. Quote the conflicting text in evidence and say in resolution exactly what the crew should reconcile or add. Return an empty array only when you genuinely find none.\n\nCRITICAL CARE. This is a rotor-wing critical care transport staffed by a flight nurse and flight paramedic. Judge whether the documentation, read on its own, would convince a reviewer that a critical care team was required and that critical care was delivered: assessment depth beyond a paramedic-level exam, advanced or invasive monitoring, titrated infusions, ventilator or advanced airway management, blood products, interpretation of labs and imaging, continuous clinical decision making, and interventions or judgment outside the paramedic scope of practice. In supporting, list the specific charted elements that carry that argument. In missing, list what a critical care chart should contain that this one does not. Be honest: a chart documenting only transport and observation does not support critical care no matter how sick the patient was.\n\nVITALS REVIEW. For every abnormal vital sign in the chart, judged against the patient age given below, report the value, why it is abnormal, whether an intervention addressing it is documented, and whether it was reassessed afterward. Include abnormal values the parsed list below may have missed, including any recorded in narrative prose rather than a flowsheet.\n\nMEDICATION REVIEW. For every medication in the chart, whether pushed, infusing on arrival, or continued in flight, report the drug, the dose and route or rate as charted, and whether the documentation is complete. Flag a missing dose, route, rate, or concentration; a missing indication; a missing documented effect; a dose that does not fit the patient weight or age; duplicate or conflicting entries; and any safety concern such as a paralytic without sedation, a vasopressor without a blood pressure to justify it, or a drug given against a documented allergy.\n\nINTERVENTION REVIEW. For every procedure or intervention performed or continued, including airway, ventilation, vascular access, chest decompression, transfusion, pacing, cardioversion, hemorrhage control, warming, and immobilization, report whether the indication, what was actually done, the confirmation step where one applies, and the patient response are all documented, and name what is missing.\n\nLAB REVIEW. For every laboratory or point-of-care value in the chart, report the test, the value, whether it is abnormal, and whether the chart shows it being acted on, trended, or explicitly accounted for.\n\nPAIN. Pain gets its own pass because it is where charts contradict themselves most often. Compare the pain score in the vital-sign or flowsheet area against every mention of pain in the narrative, and report any disagreement as a discrepancy of major severity in category Pain Documentation, or critical severity when the flowsheet reads 0 out of 10 while the narrative describes a patient in pain. A score that legitimately changed after an analgesic is not a discrepancy; say so and move on. Then, wherever pain is documented and no analgesic was given, check for a stated reason: an allergy or intolerance, the patient declining, hypotension or hemodynamic instability, altered mental status or an airway or neurologic concern, analgesia already given before the crew arrived, medical control direction, or a protocol contraindication. If pain is documented, no analgesic appears, and no reason is stated, report it as a discrepancy of major severity and say in the resolution which reason the crew needs to add. Non-pharmacologic measures alone do not satisfy this; the record still has to say why a medication was not given.\n\nNARRATIVE AGREEMENT. Test every general statement the narrative makes against the numbers charted beside it, and report each contradiction in category Narrative Consistency. Statements to check include stable, within normal limits, afebrile, no acute distress, comfortable, alert and oriented, hemodynamically stable, unlabored breathing, ventilating adequately, normothermic, and euglycemic. A chart may describe a patient one way in one place and the opposite in another only when it also explains the change and when it happened.\n\nCONTROLLED SUBSTANCES. Whenever a scheduled drug appears as given by the flight crew - fentanyl, morphine, hydromorphone, meperidine, ketamine, midazolam, lorazepam, diazepam, or any other controlled substance - check the accountability trail and report every gap as a discrepancy in category Controlled Substance, at critical severity when the waste entry or the named witness is missing and major severity otherwise. The trail is: drug, dose, route, and clock time; the indication; the reassessment after the dose; respiratory rate and sedation level around it; the amount wasted or an explicit statement that none was; the name of the crew member who witnessed the waste; and the controlled-substance record, count, or kit seal reconciling the kit. A drug already infusing when the crew arrived is the sending facility's accountability and is not reported here unless the crew gave an additional dose or drew from their own supply.\n\nSIGNATURE. Treat a missing beneficiary authorization as a discrepancy of critical severity in category Signature and Authorization whenever the chart shows no patient signature, no authorized representative signature with a stated relationship, and no documented reason the patient could not sign paired with a witness attestation naming the person and the time the patient was received. Say plainly in the resolution which of the three pathways the crew should complete.\n\nIn overall_note, give a two or three sentence QI assessment that says whether the assessment, the working diagnosis, and the treatment agree with each other, and whether this chart reads as critical care.';
 
 /* Everything the rule-based passes already established, handed to the AI as a
    second source. Discrepancies are found by comparing two accounts of the same
@@ -5327,6 +5492,16 @@ function aiContextBlock() {
       '. Reason an analgesic was withheld: ' + (pnx.justification ? pnx.justification.label : 'NOT FOUND') + '.');
     pnx.conflicts.forEach(function (cf) { L.push('  PAIN CONFLICT: ' + cf.text); });
     state.narrative.conflicts.forEach(function (cf) { L.push('  NARRATIVE CONFLICT: ' + cf.text + ' Claim: "' + cf.claim + '"'); });
+  }
+  if (state.narcotics && state.narcotics.items.length) {
+    L.push('PARSED CONTROLLED SUBSTANCES:');
+    state.narcotics.items.forEach(function (x) {
+      L.push('  ' + x.name + ' (Schedule ' + x.sched + ') - ' +
+        (x.crewGiven ? 'appears crew-given' : 'running on arrival, sending facility') +
+        '; dose ' + (x.dose ? 'yes' : 'NOT FOUND') + ', route ' + (x.route ? 'yes' : 'NOT FOUND') +
+        ', time ' + (x.time ? 'yes' : 'NOT FOUND') + ', waste ' + (x.waste ? 'yes' : 'NOT FOUND') +
+        ', witness ' + (x.witness ? 'yes' : 'NOT FOUND') + ', CS record ' + (x.log ? 'yes' : 'NOT FOUND'));
+    });
   }
   if (state.signature) {
     L.push('SIGNATURE AND AUTHORIZATION (rule-based first pass): ' + state.signature.status +
