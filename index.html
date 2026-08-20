@@ -107,6 +107,13 @@ button.primary:hover { filter: brightness(1.07); }
   color: var(--ink-2);
 }
 .scorebox { text-align: center; padding: 20px 16px; }
+@keyframes scoredflash {
+  0%   { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.55); }
+  70%  { box-shadow: 0 0 0 14px rgba(26, 115, 232, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
+}
+.scorebox.justscored { animation: scoredflash 1.1s ease-out 2; }
+@media (prefers-reduced-motion: reduce) { .scorebox.justscored { animation: none; } }
 .scorenum { font-size: 54px; font-weight: 800; line-height: 1; }
 .scorelabel { font-size: 14px; font-weight: 700; margin-top: 6px; }
 .scoresub { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
@@ -371,6 +378,7 @@ button.primary:hover { filter: brightness(1.07); }
         <label style="margin-top:16px">Chart Narrative / Documentation</label>
         <textarea id="chart" placeholder="Paste the chart narrative here, or upload the chart PDF above and its text will be extracted into this box automatically. Then press Analyze. The tool scans for each required element, flags denial language, and scores the chart 0-100. Click any item to override the automatic result."></textarea>
         <button class="primary" id="analyze">Analyze Documentation</button>
+        <div id="analyzestatus" style="font-size:12.5px;margin-top:6px;text-align:center;min-height:16px"></div>
         <div id="selwarn" style="display:none;margin-top:8px;padding:9px 12px;border-radius:8px;background:#fdeaea;border:1px solid var(--red);color:var(--red);font-size:13px;font-weight:600"></div>
         <div class="btnrow">
           <button id="savebtn">Save to Log</button>
@@ -1119,29 +1127,62 @@ function rosterMatch(candidate, roster) {
     var r = roster[i].replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
     var rp = r.split(' ').filter(Boolean);
     var rLast = rp[rp.length - 1], rFirst = rp[0];
-    if (cLast !== rLast) continue;
+    var lastMatches = cLast === rLast;
+    if (!lastMatches && (cLast.indexOf('-') >= 0 || rLast.indexOf('-') >= 0)) {
+      var cBits = cLast.split('-'), rBits = rLast.split('-');
+      lastMatches = cBits.some(function (b) { return b.length > 2 && rBits.indexOf(b) >= 0; });
+    }
+    if (!lastMatches) continue;
     if (parts.length === 1) return roster[i];
     if (cFirst === rFirst) return roster[i];
     if (cFirst.length <= 2 && rFirst.charAt(0) === cFirst.charAt(0)) return roster[i];
   }
   return null;
 }
+/* Names that belong to somebody else on the call: the receiving nurse, the
+   sending physician, the ground medic. A name introduced by any of these is not
+   the flight crew and must never land in the crew field. */
+var CREW_REJECT = /(report\s+(given|called|provided)|given\s+to|called\s+to|transferr?ed\s+(of\s+)?care|care\s+(transferred|assumed)|turned\s+(the\s+)?(patient\s+)?over|received\s+by|accepted\s+by|attested\s+by|witness(ed)?\s+by|assumed\s+care|receiving\s+(facility|nurse|rn|team|physician|hospital)|sending\s+(facility|nurse|rn|physician|provider|hospital)|referring|requesting\s+(agency|provider|physician)|ground\s+(crew|unit|medic|ems)|\b(rescue|medic|engine|squad|battalion)\s*\d+|\bdr\.?\s)/i;
+var CREW_NOT_A_NAME = /^(medic|nurse|paramedic|pilot|crew|rn|emt|flight|staff|team|and|the)$/i;
+/* A field label sits right against the name in a PDF header — "Nurse / Medic
+   K. Lane, RN" — and the name pattern happily swallows it. Peel the labels off
+   the front rather than discarding the whole match. */
+function cleanCrewName(cand) {
+  var out = String(cand || '').replace(/\s+/g, ' ').trim();
+  var lead = /^(?:flight\s+)?(?:nurse|medic|paramedic|pilot|crew|rn|emt-?p?|staff|team|and|the)\b[\s\/,.-]*/i;
+  var prev;
+  do { prev = out; out = out.replace(lead, ''); } while (out !== prev && out);
+  var bits = out.trim().split(' ').filter(Boolean);
+  if (bits.length > 3) bits = bits.slice(0, 3);
+  return bits.join(' ');
+}
 function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
   var el = document.getElementById(fieldId);
   if (!el || el.value.trim()) return null;
-  /* every "Name, RN" style mention in the chart, in order */
   var NAME = "([A-Z][\\w'’-]+(?:\\s+[A-Z][\\w'’-]*\\.?){0,2}|[A-Z]\\.\\s?[A-Z][\\w'’-]+)";
   var patterns = [
     new RegExp('\\b' + NAME + '\\s*,\\s*(?:' + roleRx.source + ')', 'g'),
-    new RegExp('(?:' + roleRx.source + ')\\s*[:\\-]?\\s*' + NAME, 'gi')
+    new RegExp('(?:' + roleRx.source + ')\\s*[:\\/\\-]?\\s*' + NAME, 'gi')
   ];
+  var fallback = null;
   for (var p = 0; p < patterns.length; p++) {
     var rx = patterns[p], m, guard = 0;
     while ((m = rx.exec(text)) && guard++ < 60) {
       if (m.index === rx.lastIndex) rx.lastIndex++;
-      var hit = rosterMatch(m[1], roster);
+      var cand = cleanCrewName(m[1]);
+      if (!cand || CREW_NOT_A_NAME.test(cand.split(' ')[0])) continue;
+      /* who introduced this name? */
+      if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
+      var hit = rosterMatch(cand, roster);
       if (hit) { setFieldValue(el, hit + ', ' + suffix); return label; }
+      if (!fallback) fallback = cand;
     }
+  }
+  /* a crew name the roster does not know still belongs in the field — the
+     reviewer needs to see it, flagged, rather than find the box empty */
+  if (fallback) {
+    setFieldValue(el, fallback + ', ' + suffix);
+    return label + ' (' + fallback + ' — not on the roster, confirm)';
   }
   return null;
 }
@@ -1258,8 +1299,32 @@ function analyze() {
     });
   });
   if (missing.length) {
+    /* Analyze does nothing until the three profile buttons are pushed, because
+       they decide which criteria apply. Pressing the button and seeing nothing
+       happen reads as a broken app, so the warning scrolls into view and offers
+       to set whatever the chart itself implies. */
     selwarn.style.display = 'block';
-    selwarn.textContent = 'REQUIRED — push a button for: ' + missing.join(' • ');
+    var chartText = document.getElementById('chart').value;
+    var prof = (chartText.trim() && typeof inferProfileFromChart === 'function')
+      ? inferProfileFromChart(chartText) : { mission: null, intub: null, meds: null };
+    var sugg = [];
+    if (!state.mission && prof.mission) sugg.push(['mission', prof.mission, prof.mission === 'scene' ? 'Scene Call' : 'Interfacility (IFT)']);
+    if (!state.intub && prof.intub) sugg.push(['intub', prof.intub, 'Intubated: ' + (prof.intub === 'yes' ? 'Yes' : 'No')]);
+    if (!state.meds && prof.meds) sugg.push(['meds', prof.meds, 'Medications prior: ' + (prof.meds === 'yes' ? 'Yes' : 'No')]);
+    selwarn.innerHTML = 'REQUIRED &mdash; push a button above for: ' + esc(missing.join(' • ')) +
+      (sugg.length
+        ? '<div style="font-weight:400;margin-top:6px">Reading the chart, this looks like <b>' + esc(sugg.map(function (x) { return x[2]; }).join(' · ')) + '</b>' +
+          (sugg.length < missing.length ? '. You still have to set the rest yourself.' : '.') +
+          '<button type="button" id="warnapply" style="display:block;margin-top:6px;font:inherit;font-size:13px;font-weight:600;background:var(--red);color:#fff;border:none;border-radius:7px;padding:7px 12px;cursor:pointer">Set these and analyze</button></div>'
+        : '');
+    var wa = document.getElementById('warnapply');
+    if (wa) wa.addEventListener('click', function () {
+      sugg.forEach(function (x) { setToggle(x[0], x[1]); });
+      save();
+      if (typeof runAnalyze === 'function') runAnalyze(); else analyze();
+    });
+    var firstFlag = document.querySelector('.tg.flag');
+    if (firstFlag) firstFlag.scrollIntoView({ behavior: 'smooth', block: 'center' });
     state.analyzed = false;
     return;
   }
@@ -4011,7 +4076,57 @@ document.querySelectorAll('.tg').forEach(function (el) {
   });
 });
 
-document.getElementById('analyze').addEventListener('click', function () { checkHeader(); analyze(); });
+/* The analysis is fast enough to finish before the browser repaints, which
+   makes a press of the button look like nothing happened. The button takes a
+   working state, the work is deferred one frame so that state is actually
+   painted, and the result is confirmed in writing underneath. */
+function analyzeStatus(msg, tone) {
+  var el = document.getElementById('analyzestatus');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.style.color = tone === 'ok' ? 'var(--green)' : tone === 'bad' ? 'var(--red)' : 'var(--muted)';
+}
+function runAnalyze() {
+  var btn = document.getElementById('analyze');
+  var label = btn.textContent;
+  btn.disabled = true;
+  btn.style.opacity = '0.65';
+  btn.textContent = 'Analyzing the chart…';
+  analyzeStatus('Reading the chart, grading the vital signs, and checking every element…', 'muted');
+  setTimeout(function () {
+    var failed = null;
+    try {
+      checkHeader();
+      analyze();
+    } catch (err) {
+      failed = err;
+    }
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.textContent = label;
+    if (failed) {
+      analyzeStatus('The analysis hit an error: <b>' + esc(String(failed.message || failed)) + '</b>. Press Clear Form and load the chart again; if it keeps happening, send the chart to QI.', 'bad');
+      return;
+    }
+    if (!state.analyzed) {
+      analyzeStatus('Not analyzed yet — set the three buttons highlighted in red above.', 'bad');
+      return;
+    }
+    var sc = computeScore();
+    var when = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    var checked = sc.pass + sc.fail + sc.review;
+    analyzeStatus('<b>Analysis complete at ' + when + '.</b> ' + checked + ' elements checked · ' +
+      sc.pass + ' documented, ' + sc.fail + ' missing, ' + sc.review + ' to verify · score ' + sc.score + '/100. Results are below and to the right.', 'ok');
+    var box = document.querySelector('.scorebox');
+    if (box) {
+      box.classList.remove('justscored');
+      void box.offsetWidth;              /* restart the animation */
+      box.classList.add('justscored');
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 30);
+}
+document.getElementById('analyze').addEventListener('click', runAnalyze);
 
 /* --- Document & photo upload (max 30), with PDF text extraction --- */
 var MAX_FILES = 30;
@@ -4513,6 +4628,8 @@ function clearForm(silent) {
   document.getElementById('filestatus').textContent = '';
   document.getElementById('scrubout').innerHTML = '';
   document.getElementById('selwarn').style.display = 'none';
+  var asx = document.getElementById('analyzestatus');
+  if (asx) asx.innerHTML = '';
   document.getElementById('score').textContent = '--';
   document.getElementById('score').className = 'scorenum';
   document.getElementById('scorelabel').textContent = 'Awaiting analysis';
