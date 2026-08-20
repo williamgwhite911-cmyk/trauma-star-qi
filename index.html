@@ -581,14 +581,9 @@ button.primary:hover { filter: brightness(1.07); }
         <div class="legend noprint">Use the Reviewer Override buttons on any item the automatic scan got wrong &mdash; the score and summary readjust instantly. Amber items need reviewer judgment.</div>
       </div>
       <div class="card" id="summarycard" style="display:none">
-        <h2>Call Summary &amp; Reviewer Assessment</h2>
+        <h2>Call Summary</h2>
         <div id="summarytext"></div>
-        <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
-          <div style="flex:2;min-width:180px"><label>Reviewed By</label><input type="text" id="f_reviewer" placeholder="Name, credentials"></div>
-          <div style="flex:1;min-width:140px"><label>Review Date</label><input type="date" id="f_revdate"></div>
-        </div>
-        <label style="margin-top:12px">Reviewer Comments</label>
-        <textarea id="f_comments" style="min-height:70px" placeholder="Free-text QI reviewer notes for this call..."></textarea>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:10px">Sign the review off at the bottom of this page, after you have read everything below.</div>
       </div>
       <div class="card" id="discrepcard" style="display:none">
         <h2>Documentation Discrepancies &mdash; AI Cross-Check</h2>
@@ -628,6 +623,18 @@ button.primary:hover { filter: brightness(1.07); }
       </div>
       <div id="results"></div>
     </div>
+  </div>
+
+  <div class="card noprint" id="signoffcard" style="margin-top:18px">
+    <h2>Reviewer Sign-Off</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Fill this in last, after reading the analysis above. Your name, the date, and these comments print on the QI report and are stored with the review.</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:2;min-width:200px"><label>Reviewed By</label><input type="text" id="f_reviewer" placeholder="Name, credentials"></div>
+      <div style="flex:1;min-width:150px"><label>Review Date</label><input type="date" id="f_revdate"></div>
+    </div>
+    <label style="margin-top:12px">Reviewer Comments</label>
+    <textarea id="f_comments" style="min-height:120px" placeholder="Free-text QI reviewer notes for this call — what you agreed with, what you overrode, what the crew should carry into the next chart, and anything routed to Risk Management."></textarea>
+    <div id="signoffstatus" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
   </div>
 </div>
 
@@ -4592,6 +4599,10 @@ document.getElementById('savebtn').addEventListener('click', saveToLog);
 document.getElementById('printbtn').addEventListener('click', function () {
   var f = getFields();
   if (!state.analyzed) { checkHeader(); analyze(); }
+  /* the sign-off is usually typed after the analysis, so the printed header has
+     to be rebuilt or it goes out carrying an empty Reviewed By */
+  else render();
+  f = getFields();
   if (f.oca.trim()) saveToLog();
   var oldTitle = document.title;
   document.title = 'TSQI_' + (f.oca.trim() || 'review') + '_' + (f.date || new Date().toISOString().slice(0, 10));
@@ -4630,6 +4641,7 @@ function clearForm(silent) {
   document.getElementById('selwarn').style.display = 'none';
   var asx = document.getElementById('analyzestatus');
   if (asx) asx.innerHTML = '';
+  if (typeof renderSignoff === 'function') renderSignoff();
   document.getElementById('score').textContent = '--';
   document.getElementById('score').className = 'scorenum';
   document.getElementById('scorelabel').textContent = 'Awaiting analysis';
@@ -4672,6 +4684,7 @@ document.getElementById('savenewbtn').addEventListener('click', function () {
     return;
   }
   if (!state.analyzed) { checkHeader(); analyze(); }
+  else render();   /* pick up a sign-off typed after the analysis */
   saveToLog();
   var oldTitle = document.title;
   document.title = 'TSQI_' + f.oca.trim() + '_' + (f.date || new Date().toISOString().slice(0, 10));
@@ -5287,6 +5300,34 @@ document.getElementById('aibtn').addEventListener('click', function () {
   document.getElementById(id).addEventListener('input', function () { checkHeader(); renderFlightLog(); save(); });
   document.getElementById(id).addEventListener('change', function () { renderFlightLog(); });
 });
+/* Sign-off: stamp the review date the first time a reviewer puts their name to
+   it, and say plainly that what was typed is stored and will print. */
+function renderSignoff() {
+  var el = document.getElementById('signoffstatus');
+  if (!el) return;
+  var f = getFields();
+  var bits = [];
+  if (f.reviewer.trim()) bits.push('Reviewed by ' + f.reviewer.trim());
+  if (f.revdate) bits.push('on ' + f.revdate);
+  if (f.comments.trim()) bits.push(f.comments.trim().length + ' characters of comments');
+  el.textContent = bits.length
+    ? 'Saved on this device: ' + bits.join(', ') + '. This prints on the QI report and is stored with the review.'
+    : 'Not signed off yet. Add your name so the report shows who reviewed this chart.';
+}
+['f_reviewer', 'f_revdate', 'f_comments'].forEach(function (id) {
+  document.getElementById(id).addEventListener('input', function () {
+    if (id === 'f_reviewer') {
+      var rd = document.getElementById('f_revdate');
+      if (!rd.value && this.value.trim()) {
+        var d = new Date();
+        rd.value = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      }
+    }
+    renderSignoff();
+    save();
+  });
+});
+renderSignoff();
 ['f_icd','f_icd2','f_hcpcs','f_miles'].forEach(function (id) {
   document.getElementById(id).addEventListener('input', function () { renderBilling(); save(); });
 });
