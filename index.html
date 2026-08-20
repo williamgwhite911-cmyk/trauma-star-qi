@@ -2340,6 +2340,60 @@ var VITAL_RESPONSE = {
   dbp_high:  { name: 'High diastolic pressure', rx: [/(nicardipine|cleviprex|labetalol|hydralazine|esmolol|nitroglycerin)/i, /(bp|blood\s+pressure)[^.\n]{0,30}(titrat|lowered|controlled)/i] }
 };
 var VITAL_ORDER = ['hr', 'sbp', 'dbp', 'map', 'rr', 'spo2', 'etco2', 'tempF', 'gluc', 'gcs', 'pain'];
+/* Every line the vitals table shows, whether or not the chart supplies it. A
+   parameter that is simply absent from the table reads as "not applicable";
+   listed and marked NOT DOCUMENTED, it reads as what it is. */
+var VITAL_ROWS = [
+  { key: 'hr',    label: 'Heart rate',        required: true },
+  { key: 'sbp',   label: 'Systolic BP',       required: true },
+  { key: 'dbp',   label: 'Diastolic BP',      required: false },
+  { key: 'map',   label: 'MAP',               required: false },
+  { key: 'rr',    label: 'Respiratory rate',  required: true },
+  { key: 'spo2',  label: 'SpO2',              required: true },
+  { key: 'o2',    label: 'Oxygen delivery',   required: true, text: true },
+  { key: 'etco2', label: 'ETCO2 (waveform)',  required: 'vent' },
+  { key: 'tempF', label: 'Patient temperature', required: true },
+  { key: 'gluc',  label: 'Blood glucose',     required: true },
+  { key: 'gcs',   label: 'GCS',               required: true },
+  { key: 'pain',  label: 'Pain score',        required: true }
+];
+var O2_DEVICE_RX = /\b(room\s*air|\bra\b|nasal\s*cannula|\bnc\b|non.?rebreather|\bnrb\b|simple\s*mask|venturi\s*mask|venti\s*mask|high.?flow(?:\s*nasal\s*cannula)?|\bhfnc\b|bag.?valve(?:.?mask)?|\bbvm\b|cpap|bipap|ventilator|mechanical\s*ventilation|blow.?by|trach(?:eostomy)?\s*collar|face\s*mask)\b/gi;
+var O2_FLOW_RX = /(\d{1,2}(?:\.\d)?)\s*(?:lpm|l\/min|l\s*per\s*min|liters?\s*(?:per\s*min|\/\s*min)?|\bl\b)(?![a-z])/gi;
+var FIO2_RX = /\bfio2\s*(?:was|of|is|set\s*(?:at|to)|:|=|-)?\s*(\d{1,3})\s*%?/gi;
+/* Oxygen is charted as a device, a flow, or an FiO2 - often all three, often
+   none. Read whichever are there and present them as one line. */
+function extractOxygen(text) {
+  var t = text || '';
+  var devices = [], flows = [], fio2s = [], m;
+  O2_DEVICE_RX.lastIndex = 0;
+  while ((m = O2_DEVICE_RX.exec(t))) {
+    var d = m[1].replace(/\s+/g, ' ').trim();
+    if (devices.indexOf(d.toLowerCase()) < 0) devices.push(d.toLowerCase());
+    if (m.index === O2_DEVICE_RX.lastIndex) O2_DEVICE_RX.lastIndex++;
+  }
+  O2_FLOW_RX.lastIndex = 0;
+  while ((m = O2_FLOW_RX.exec(t))) {
+    var v = parseFloat(m[1]);
+    if (v > 0 && v <= 60 && flows.indexOf(v) < 0) flows.push(v);
+    if (m.index === O2_FLOW_RX.lastIndex) O2_FLOW_RX.lastIndex++;
+  }
+  FIO2_RX.lastIndex = 0;
+  while ((m = FIO2_RX.exec(t))) {
+    var f = parseInt(m[1], 10);
+    if (f >= 21 && f <= 100 && fio2s.indexOf(f) < 0) fio2s.push(f);
+    if (m.index === FIO2_RX.lastIndex) FIO2_RX.lastIndex++;
+  }
+  var parts = [];
+  if (devices.length) parts.push(devices.join(', '));
+  if (flows.length) parts.push(flows.join(' / ') + ' L/min');
+  if (fio2s.length) parts.push('FiO2 ' + fio2s.join(' / ') + '%');
+  return {
+    devices: devices, flows: flows, fio2: fio2s,
+    display: parts.join(' · '),
+    found: parts.length > 0,
+    roomAirOnly: devices.length === 1 && /^(room air|ra)$/.test(devices[0]) && !fio2s.length
+  };
+}
 function assessVitals(text) {
   var f = getFields();
   var ageY = parseAgeYears(f.age);
@@ -2348,6 +2402,7 @@ function assessVitals(text) {
   var rules = vitalRules(band, ageY);
   var bag = extractVitals(text || '');
   var out = { ageY: ageY, band: band, rules: rules, params: [], findings: [], missing: [], totalReadings: 0, ageKnown: ageY !== null };
+  out.oxygen = extractOxygen(text || '');
   VITAL_ORDER.forEach(function (k) {
     var r = rules[k], hits = bag[k] || [];
     if (!hits.length) return;
@@ -2397,6 +2452,7 @@ function assessVitals(text) {
   ];
   if (state.intub === 'yes') required.push({ k: 'etco2', label: 'ETCO2 (waveform capnography)' });
   required.forEach(function (q) { if (!(bag[q.k] || []).length) out.missing.push(q.label); });
+  if (!out.oxygen.found) out.missing.push('Oxygen delivery (device, flow rate, or FiO2 — room air counts)');
   /* how many complete sets: the parameter charted the fewest times, among the core four */
   var core = ['hr', 'sbp', 'rr', 'spo2'].map(function (k) { return (bag[k] || []).length; });
   out.sets = Math.min.apply(null, core);
@@ -2431,6 +2487,63 @@ function assessVitals(text) {
   }
   return out;
 }
+/* What this crew actually did, listed under the vitals so the two read
+   together: the numbers, then the care given in response to them. */
+function crewCareSection() {
+  var c = state.clinical;
+  if (!c) return '';
+  var isCrew = function (x) { return x.attrib && (x.attrib.by === 'crew' || x.attrib.by === 'unclear' || x.attrib.by === 'both'); };
+  var isPrior = function (x) { return x.attrib && x.attrib.by === 'prior'; };
+  var crewMeds = c.meds.filter(isCrew), crewProcs = c.procs.filter(isCrew);
+  var priorMeds = c.meds.filter(isPrior), priorProcs = c.procs.filter(isPrior);
+  var html = '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin:14px 0 4px">Given by the flight crew</div>';
+  if (!crewMeds.length && !crewProcs.length) {
+    html += '<div class="flag"><b>Nothing in this chart is documented as care the flight crew delivered.</b>' +
+      '<div class="fix">A transport with no crew-performed intervention and no crew-given medication is very hard to defend as critical care, whatever the patient\'s condition was. If the crew gave, titrated, or performed anything, it has to appear in the narrative with a time.</div></div>';
+  } else {
+    if (crewProcs.length) {
+      html += '<div style="font-size:12.5px;font-weight:600;margin:6px 0 2px">Interventions performed</div>';
+      crewProcs.forEach(function (pr) {
+        var gaps = [];
+        if (!pr.indication) gaps.push('indication');
+        if (!pr.technique) gaps.push('technique or size');
+        if (pr.needsConf && !pr.confirmation) gaps.push('confirmation');
+        if (!pr.response) gaps.push('response');
+        html += '<div style="font-size:12.5px;margin-bottom:3px;display:flex;gap:7px;align-items:flex-start">' +
+          '<b style="color:' + (gaps.length ? 'var(--amber)' : 'var(--green)') + ';flex-shrink:0">' + (gaps.length ? '!' : '✓') + '</b>' +
+          '<span>' + esc(pr.label) +
+          (pr.attrib.by === 'both' ? ' <span style="color:var(--muted)">(started before arrival, managed by the crew)</span>' : '') +
+          (pr.attrib.by === 'unclear' ? ' <span style="color:var(--amber)">(the chart does not say who performed this &mdash; say so)</span>' : '') +
+          (gaps.length ? ' <span style="color:var(--red)">&mdash; missing ' + esc(gaps.join(', ')) + '</span>' : '') +
+          '</span></div>';
+      });
+    }
+    if (crewMeds.length) {
+      html += '<div style="font-size:12.5px;font-weight:600;margin:8px 0 2px">Medications given or titrated</div>';
+      crewMeds.forEach(function (md) {
+        var gaps = [];
+        if (!md.dose) gaps.push('dose');
+        if (!md.route) gaps.push('route');
+        if (!md.effect) gaps.push('documented effect');
+        html += '<div style="font-size:12.5px;margin-bottom:3px;display:flex;gap:7px;align-items:flex-start">' +
+          '<b style="color:' + (gaps.length ? 'var(--amber)' : 'var(--green)') + ';flex-shrink:0">' + (gaps.length ? '!' : '✓') + '</b>' +
+          '<span style="text-transform:capitalize">' + esc(md.name) + '</span>' +
+          '<span style="color:var(--ink-2)">' +
+          (md.attrib.by === 'both' ? '(running on arrival, titrated by the crew)' : '') +
+          (md.attrib.by === 'unclear' ? '<span style="color:var(--amber)">(the chart does not say who gave this &mdash; say so)</span>' : '') +
+          (gaps.length ? ' <span style="color:var(--red)">missing ' + esc(gaps.join(', ')) + '</span>' : '') +
+          '</span></div>';
+      });
+    }
+  }
+  if (priorMeds.length || priorProcs.length) {
+    html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px">In place before the crew arrived</div>';
+    html += '<div style="font-size:12.5px;color:var(--ink-2)">' +
+      esc(priorProcs.map(function (x) { return x.label; }).concat(priorMeds.map(function (x) { return x.name; })).join(' · ')) +
+      '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">These belong in the chart as the clinical picture the crew assumed, but they are not care this crew delivered. Anything the crew then managed or titrated should say so.</div></div>';
+  }
+  return html;
+}
 function vitalChip(lvl) {
   return lvl === 'crit' ? ['var(--red)', 'var(--red-bg)', '#f3c2c2', 'CRITICAL']
        : lvl === 'abn'  ? ['var(--amber)', 'var(--amber-bg)', '#eeda9e', 'ABNORMAL']
@@ -2446,13 +2559,40 @@ function renderVitals() {
   html += '<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">Graded against <b>' + esc(v.band.name) + '</b> ranges' +
     (v.ageKnown ? ' (patient age ' + esc(document.getElementById('f_age').value.trim()) + ').' :
       ' &mdash; <b style="color:var(--amber)">no patient age entered, adult ranges assumed.</b> Enter the age in Flight Information to grade a pediatric patient correctly.') + '</div>';
-  if (!v.params.length) {
+  if (!v.params.length && !(v.oxygen && v.oxygen.found)) {
     out.innerHTML = html + aiVitalsSection() + '<div class="flag"><b>No vital signs could be read from this chart.</b> Either the vitals live only in a flowsheet image that was not extracted, or they are not documented. A chart with no readable vital signs cannot demonstrate the patient\'s condition, the need for air transport, or the effect of any treatment given.</div>';
     return;
   }
+  /* every expected parameter gets a line, documented or not */
   html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">' +
     '<tr style="text-align:left;color:var(--muted)"><th style="padding:4px 6px">Parameter</th><th style="padding:4px 6px;text-align:right">Readings</th><th style="padding:4px 6px;text-align:right">First &rarr; last</th><th style="padding:4px 6px;text-align:right">Range seen</th><th style="padding:4px 6px;text-align:right">Expected</th><th style="padding:4px 6px;text-align:right">Verdict</th></tr>';
-  v.params.forEach(function (p) {
+  VITAL_ROWS.forEach(function (row) {
+    /* oxygen delivery is text, not a number, so it gets its own line shape */
+    if (row.text) {
+      var ox = v.oxygen || { found: false, display: '' };
+      var oCol = ox.found ? 'var(--green)' : 'var(--red)';
+      html += '<tr style="border-top:1px solid #e5e7eb">' +
+        '<td style="padding:4px 6px">' + esc(row.label) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right">' + (ox.found ? '—' : '0') + '</td>' +
+        '<td colspan="3" style="padding:4px 6px;text-align:right">' + (ox.found ? esc(ox.display) : '<span style="color:var(--red)">nothing charted &mdash; room air counts and must be said</span>') + '</td>' +
+        '<td style="padding:4px 6px;text-align:right"><b style="color:' + oCol + '">' + (ox.found ? 'DOCUMENTED' : 'NOT DOCUMENTED') + '</b></td></tr>';
+      return;
+    }
+    var p = v.params.filter(function (x) { return x.key === row.key; })[0];
+    if (!p) {
+      var needed = row.required === 'vent' ? (state.intub === 'yes') : !!row.required;
+      var col = needed ? 'var(--red)' : 'var(--muted)';
+      var word = needed ? 'NOT DOCUMENTED' : 'not charted';
+      var why = row.key === 'etco2' && state.intub !== 'yes'
+        ? 'expected on a ventilated or advanced-airway patient'
+        : needed ? 'CAMTS expects this on every patient' : 'optional on this chart';
+      html += '<tr style="border-top:1px solid #e5e7eb;opacity:' + (needed ? '1' : '0.6') + '">' +
+        '<td style="padding:4px 6px;color:' + col + '">' + esc(row.label) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right;color:' + col + '">0</td>' +
+        '<td colspan="3" style="padding:4px 6px;text-align:right;color:var(--muted);font-style:italic">' + esc(why) + '</td>' +
+        '<td style="padding:4px 6px;text-align:right"><b style="color:' + col + '">' + word + '</b></td></tr>';
+      return;
+    }
     var lvl = p.worst ? p.worst.cls.lvl : 'ok';
     var c = vitalChip(lvl);
     html += '<tr style="border-top:1px solid #e5e7eb">' +
@@ -2466,6 +2606,7 @@ function renderVitals() {
   html += '</table></div>';
   html += '<div style="font-size:12px;color:var(--muted);margin-top:5px">' + v.totalReadings + ' individual value(s) read from the narrative; approximately <b>' + v.sets + '</b> complete set(s) of heart rate, blood pressure, respiratory rate, and SpO2.' +
     (v.sets < 2 ? ' <b style="color:var(--red)">Fewer than two complete sets — serial vitals are what prove the patient was monitored, not merely observed.</b>' : '') + '</div>';
+  html += crewCareSection();
 
   if (v.findings.length) {
     html += '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--red);margin:12px 0 4px">Abnormal values &mdash; was each one acted on?</div>';
@@ -3088,6 +3229,22 @@ function medWindow(text, idx, len) {
   if (end - idx > 160) end = idx + 160;
   return text.slice(Math.max(0, start), Math.min(text.length, end));
 }
+/* Care the flight crew delivered is the care that justifies a flight crew. A
+   drip that was already running when they walked in is part of the clinical
+   picture; the same drip titrated in flight is critical care they performed.
+   These two patterns separate the one from the other. */
+var CARE_PRIOR_RX = /(prior\s+to\s+(?:our\s+)?arrival|before\s+(?:our\s+)?arrival|at\s+the\s+sending|by\s+the\s+sending|sending\s+facility|referring\s+facility|already\s+(?:running|infusing|in\s+place|given|placed)|infusing\s+on\s+(?:our\s+)?arrival|running\s+on\s+(?:our\s+)?arrival|on\s+(?:our\s+)?arrival|continued\s+from|carried\s+over|started\s+by\s+(?:the\s+)?(?:ground|sending|referring)|ground\s+(?:crew|unit|ems)|per\s+the\s+sending|placed\s+by\s+(?:the\s+)?(?:ground|sending|referring|ed\b))/i;
+var CARE_CREW_RX = /(we\s+(?:gave|administered|placed|started|performed)|(?:flight\s+)?crew\s+(?:gave|administered|placed|started|performed)|in\s*[- ]?flight|during\s+(?:the\s+)?(?:transport|flight)|en\s*route|after\s+(?:our\s+)?arrival|this\s+crew|upon\s+(?:our\s+)?arrival\s+we|(?:given|administered|pushed|initiated|started|bolused|placed|performed)\s+by\s+(?:the\s+)?(?:flight\s+)?crew)/i;
+var CARE_TITRATE_RX = /(titrat\w+|rate\s+(?:increased|decreased|changed|adjusted)|weaned|escalat\w+|increased\s+to|decreased\s+to|adjusted\s+to)/i;
+function attributeCare(win) {
+  var prior = CARE_PRIOR_RX.test(win);
+  var crew = CARE_CREW_RX.test(win);
+  var titrated = CARE_TITRATE_RX.test(win);
+  if (prior && (crew || titrated)) return { by: 'both', titrated: titrated };
+  if (prior) return { by: 'prior', titrated: false };
+  if (crew) return { by: 'crew', titrated: titrated };
+  return { by: 'unclear', titrated: titrated };
+}
 function extractMeds(text) {
   var found = [], seen = {};
   MED_NAMES.forEach(function (name) {
@@ -3107,6 +3264,7 @@ function extractMeds(text) {
         rate: MED_RX.rate.test(win),
         wtBased: MED_RX.wtdose.test(win),
         weightNote: MED_RX.wtdose.test(win) ? 'weight-based' : null,
+        attrib: attributeCare(win),
         route: MED_RX.route.test(win),
         effect: MED_RX.effect.test(after),
         ctx: snippet(text, m)
@@ -3199,6 +3357,7 @@ function extractProcs(text) {
     var win = text.slice(Math.max(0, m.index - 220), Math.min(text.length, m.index + 420));
     out.push({
       label: d.label, ctx: snippet(text, m),
+      attrib: attributeCare(win),
       indication: d.ind.test(win), technique: d.tech.test(win),
       needsConf: d.conf, confirmation: d.conf ? d.confRx.test(win) : true,
       response: /(improv\w*|reassess\w*|recheck\w*|response|tolerated|no\s+change|unchanged|resolved|after\s+the|following\s+the|post.?procedure|subsequent)/i.test(win)
