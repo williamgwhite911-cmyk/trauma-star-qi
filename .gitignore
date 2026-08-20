@@ -1,0 +1,4 @@
+
+# never commit real patient charts used for testing
+OCA*.pdf
+test-chart*.pdf

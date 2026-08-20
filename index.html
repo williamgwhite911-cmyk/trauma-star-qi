@@ -1175,14 +1175,17 @@ var CREW_NOT_A_NAME = /^(medic|nurse|paramedic|pilot|crew|rn|emt|flight|staff|te
 /* A field label sits right against the name in a PDF header — "Nurse / Medic
    K. Lane, RN" — and the name pattern happily swallows it. Peel the labels off
    the front rather than discarding the whole match. */
+var CREW_LABEL_WORD = /^(flight|nurse|medic|paramedic|pilot|crew|rn|emt|emtp|nrp|fpc|ccpc|cfrn|aprn|staff|team|and|the|in|command|pic|role|name|scene|ift|aircraft|date|oca|incident|run|patient|chief|complaint|pickup|dropoff|transport|trauma|mvc|age|dob)$/i;
 function cleanCrewName(cand) {
-  var out = String(cand || '').replace(/\s+/g, ' ').trim();
-  var lead = /^(?:flight\s+)?(?:nurse|medic|paramedic|pilot|crew|rn|emt-?p?|staff|team|and|the)\b[\s\/,.-]*/i;
-  var prev;
-  do { prev = out; out = out.replace(lead, ''); } while (out !== prev && out);
-  var bits = out.trim().split(' ').filter(Boolean);
-  if (bits.length > 3) bits = bits.slice(0, 3);
-  return bits.join(' ');
+  var toks = String(cand || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  var bare = function (t) { return t.replace(/[.,;:\/()-]/g, ''); };
+  while (toks.length && CREW_LABEL_WORD.test(bare(toks[0]))) toks.shift();
+  var keep = [];
+  for (var i = 0; i < toks.length && keep.length < 3; i++) {
+    if (CREW_LABEL_WORD.test(bare(toks[i]))) break;   /* the next field's label */
+    keep.push(toks[i]);
+  }
+  return keep.join(' ').replace(/[,;:]+$/, '').trim();
 }
 function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
   var el = document.getElementById(fieldId);
@@ -1190,6 +1193,7 @@ function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
   var NAME = "([A-Z][\\w'’-]+(?:\\s+[A-Z][\\w'’-]*\\.?){0,2}|[A-Z]\\.\\s?[A-Z][\\w'’-]+)";
   var patterns = [
     new RegExp('\\b' + NAME + '\\s*,\\s*(?:' + roleRx.source + ')', 'g'),
+    new RegExp('\\b' + NAME + '\\s+(?:' + roleRx.source + ')\\b', 'g'),
     new RegExp('(?:' + roleRx.source + ')\\s*[:\\/\\-]?\\s*' + NAME, 'gi')
   ];
   var fallback = null;
@@ -1227,7 +1231,7 @@ function autofillFromChart(text) {
      the date rather than after the word */
   m = /\bdate\s*\/\s*oca\b\s*[:#-]?\s*\S+\s*\/\s*([a-z0-9][a-z0-9-]{1,15})/i.exec(text);
   if (m && /\d/.test(m[1])) fill('f_oca', m[1], 'OCA');
-  var ocaRe = /\boca\s*(?:number|no\.?|#)?\s*[:#-]?\s*([a-z0-9][a-z0-9-]{1,15})/gi, om;
+  var ocaRe = /\b(?:oca|incident|run)\s*(?:number|no\.?|#)?\s*[:#.-]?\s*([a-z0-9][a-z0-9-]{1,15})/gi, om;
   while ((om = ocaRe.exec(text))) {
     var cand = om[1];
     if (/^\d{4}-\d{2}-\d{2}$/.test(cand)) continue;
@@ -1235,9 +1239,43 @@ function autofillFromChart(text) {
     fill('f_oca', cand, 'OCA');
     break;
   }
-  m = /(\d{4}-\d{2}-\d{2})/.exec(text);
-  if (m) fill('f_date', m[1], 'date');
-  else { m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text); if (m) fill('f_date', m[3] + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2), 'date'); }
+  /* A chart carries several dates and only one of them is the flight. The
+     patient's date of birth is the trap: an 80-year-old gives 1946, which then
+     sits in the Flight Date box looking like a bug. Labelled dates win, a date
+     introduced by DOB is skipped outright, and a year that cannot be a flight
+     date is rejected whatever introduced it. */
+  var DOB_CONTEXT = /(d\.?o\.?b\.?|date\s+of\s+birth|birth\s*date|born|birthday)[^0-9]{0,12}$/i;
+  var thisYear = new Date().getFullYear();
+  function plausibleFlightYear(y) { return y >= 2015 && y <= thisYear + 1; }
+  function tryDate(iso, idx) {
+    var y = parseInt(iso.slice(0, 4), 10);
+    if (!plausibleFlightYear(y)) return false;
+    if (idx !== undefined && DOB_CONTEXT.test(text.slice(Math.max(0, idx - 30), idx))) return false;
+    fill('f_date', iso, 'date');
+    return true;
+  }
+  var DATE_LABEL = '(?:flight\\s+date|date\\s+of\\s+(?:service|flight|transport|call)|service\\s+date|call\\s+date|incident\\s+date|run\\s+date|date\\s*\\/\\s*oca|\\bdate\\b)';
+  var labelledIso = new RegExp(DATE_LABEL + '\\s*[:#-]?\\s*(\\d{4}-\\d{2}-\\d{2})', 'i').exec(text);
+  var labelledSlash = new RegExp(DATE_LABEL + '\\s*[:#-]?\\s*(\\d{1,2})[\\/-](\\d{1,2})[\\/-](\\d{2,4})', 'i').exec(text);
+  var gotDate = false;
+  if (labelledIso && !DOB_CONTEXT.test(text.slice(Math.max(0, labelledIso.index - 30), labelledIso.index))) {
+    gotDate = tryDate(labelledIso[1], labelledIso.index);
+  }
+  if (!gotDate && labelledSlash && !DOB_CONTEXT.test(text.slice(Math.max(0, labelledSlash.index - 30), labelledSlash.index))) {
+    var ly = labelledSlash[3].length === 2 ? '20' + labelledSlash[3] : labelledSlash[3];
+    gotDate = tryDate(ly + '-' + ('0' + labelledSlash[1]).slice(-2) + '-' + ('0' + labelledSlash[2]).slice(-2), labelledSlash.index);
+  }
+  if (!gotDate) {
+    var isoRe = /(\d{4}-\d{2}-\d{2})/g, im;
+    while (!gotDate && (im = isoRe.exec(text))) gotDate = tryDate(im[1], im.index);
+  }
+  if (!gotDate) {
+    var slashRe = /(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/g, sm2;
+    while (!gotDate && (sm2 = slashRe.exec(text))) {
+      var yy = sm2[3].length === 2 ? '20' + sm2[3] : sm2[3];
+      gotDate = tryDate(yy + '-' + ('0' + sm2[1]).slice(-2) + '-' + ('0' + sm2[2]).slice(-2), sm2.index);
+    }
+  }
   m = /trauma\s*star\s*(north|south)/i.exec(text);
   if (m) {
     var sel = document.getElementById('f_aircraft');
@@ -1248,15 +1286,16 @@ function autofillFromChart(text) {
   m = /chief\s+complaint\s*[:\-]?\s*([^\n.;]{3,60}?)(?=\s{2,}|\s*\b(?:pilot|crew|flight\s+nurse|nurse|medic|paramedic|aircraft|date|oca|patient|age|dob|weight|sex|gender|diagnosis|impression|history|hpi)\b|[\n.;]|$)/i.exec(text);
   if (m) fill('f_cc', m[1].trim(), 'chief complaint');
   var NAME = "([A-Z]\\.(?:\\s?[A-Z][\\w'-]+)+|[A-Z][\\w'-]+(?:\\s[A-Z]\\.?[\\w'-]*){0,2})";
-  m = new RegExp('pilot[:\\s]+' + NAME, 'i').exec(text); if (m) fill('f_pilot', m[1], 'pilot');
+  m = new RegExp('(?:pilot(?:\\s+in\\s+command)?|\\bpic\\b)\\s*[:\\/-]?\\s*' + NAME, 'i').exec(text);
+  if (m) { var pn = cleanCrewName(m[1]); if (pn) fill('f_pilot', pn, 'pilot'); }
   /* Crew names are chosen from the Trauma Star roster, never invented from the
      chart. A chart names plenty of other people — the receiving nurse, the
      sending physician, the ground crew — and writing one of those into the
      dropdown both picks the wrong person and permanently adds a stranger to the
      pick list. Only a name that matches somebody on the roster is filled in. */
-  var crewRn = fillCrewFromRoster(text, 'f_rn', /\bRN\b|\bR\.N\.\b|nurse/i, QI_RNS, 'RN', 'nurse');
+  var crewRn = fillCrewFromRoster(text, 'f_rn', /\bRN\b|\bR\.N\.\b|\bCFRN\b|\bAPRN\b|[Nn]urse/i, QI_RNS, 'RN', 'nurse');
   if (crewRn) filled.push(crewRn);
-  var crewMedic = fillCrewFromRoster(text, 'f_medic', /\bParamedic\b|\bEMT-?P\b|\bMedic\b/i, QI_MEDICS, 'Paramedic', 'medic');
+  var crewMedic = fillCrewFromRoster(text, 'f_medic', /\b[Pp]aramedic\b|\bEMT-?[Pp]\b|\bNRP\b|\bFP-?C\b|\bCCP-?C\b|\b[Mm]edic\b/i, QI_MEDICS, 'Paramedic', 'medic');
   if (crewMedic) filled.push(crewMedic);
   var PLACE = "([A-Z][\\w'’-]*(?:\\s[A-Z0-9][\\w'’-]*){0,4})";
   m = new RegExp('from\\s+' + PLACE + '\\s+to\\s+' + PLACE).exec(text);
@@ -1287,7 +1326,8 @@ function autofillFromChart(text) {
   if (m) fill('f_ttoc', m[1], 'transfer-of-care time');
   m = /(?:back\s+in\s+service|in\s+service|cleared)[^0-9\n]{0,20}\b(\d{3,4})\b/i.exec(text);
   if (m) fill('f_tclear', m[1], 'back-in-service time');
-  m = /(\d{1,3})\s*[-\s]?(?:year|yr)[\s-]?old/i.exec(text) || /\b(\d{1,3})\s*y\/?o\b/i.exec(text) || /\bage\s*[:=]\s*(\d{1,3})\b/i.exec(text);
+  m = /(\d{1,3})\s*[-\s]?(?:year|yr)[\s-]?old/i.exec(text) || /\b(\d{1,3})\s*y\/?o\b/i.exec(text)
+    || /\bage\s*[:=]?\s*(\d{1,3})\s*(?:yrs?|years?)\b/i.exec(text) || /\bage\s*[:=]\s*(\d{1,3})\b/i.exec(text);
   if (m) fill('f_age', m[1], 'patient age');
   else if ((m = /(\d{1,2})\s*[-\s]?month[\s-]?old/i.exec(text))) fill('f_age', m[1] + ' mo', 'patient age');
   else if ((m = /(\d{1,2})\s*[-\s]?(?:day|week)[\s-]?old/i.exec(text))) fill('f_age', m[0].replace(/[-\s]?old/i, '').trim(), 'patient age');
@@ -2240,7 +2280,7 @@ var TABLE_COLS = [
   { key: 'tempF', rx: /^(temp\.?|temperature|core\s*temp\.?)$/i },
   { key: 'gcs',   rx: /^(gcs|glasgow)$/i },
   { key: 'pain',  rx: /^(pain|pain\s*score|pain\s*level|pain\s*scale)$/i },
-  { key: 'gluc',  rx: /^(glucose|bgl|cbg|blood\s*sugar|d.?stick|accu.?chek)$/i },
+  { key: 'gluc',  rx: /^(glucose|bgl|\bbg\b|cbg|blood\s*sugar|d.?stick|accu.?chek|glucometer)$/i },
   { key: 'time',  rx: /^(time|clock|hhmm|assessment\s*time)$/i }
 ];
 function splitTableRow(line) {
@@ -2254,6 +2294,36 @@ function splitTableRow(line) {
   if (/ {2,}/.test(line)) return line.split(/ {2,}/).map(function (c) { return c.trim(); });
   return null;
 }
+/* Column layout read off the header line: each label with the character span it
+   owns. A value is then assigned to the column it physically sits under. */
+function headerColumns(line) {
+  var cols = [], rx = /\S+(?:\s\S+)*?(?=\s{2,}|$)/g, m;
+  while ((m = rx.exec(line))) {
+    var label = m[0].trim();
+    for (var k = 0; k < TABLE_COLS.length; k++) {
+      if (TABLE_COLS[k].rx.test(label)) { cols.push({ key: TABLE_COLS[k].key, start: m.index, end: m.index + m[0].length }); break; }
+    }
+    if (m.index === rx.lastIndex) rx.lastIndex++;
+  }
+  var real = cols.filter(function (c) { return c.key !== 'time'; });
+  return real.length >= 3 ? cols : null;
+}
+function assignByPosition(line, cols) {
+  var cells = {}, rx = /\S+/g, m;
+  while ((m = rx.exec(line))) {
+    var start = m.index, end = start + m[0].length, mid = (start + end) / 2;
+    var best = null, bestScore = Infinity;
+    cols.forEach(function (c) {
+      var overlap = Math.min(end, c.end) - Math.max(start, c.start);
+      var dist = overlap > 0 ? 0 : Math.abs(mid - (c.start + c.end) / 2);
+      if (dist < bestScore) { bestScore = dist; best = c; }
+    });
+    if (best && bestScore <= 6) {
+      cells[best.key] = (cells[best.key] ? cells[best.key] + ' ' : '') + m[0];
+    }
+  }
+  return cells;
+}
 function headerMap(cells) {
   var map = {}, hits = 0;
   cells.forEach(function (c, i) {
@@ -2263,28 +2333,52 @@ function headerMap(cells) {
   });
   return hits >= 3 ? map : null;
 }
+/* A value only counts if it could physically be that measurement. Without this
+   a stray number from an ECG or medication table three pages later gets filed
+   as a respiratory rate of 1 or a temperature of 8. */
+var TABLE_RANGE = {
+  hr: [20, 250], sbp: [50, 260], dbp: [20, 160], map: [20, 200], rr: [4, 80],
+  spo2: [40, 100], etco2: [5, 99], tempF: [90, 110], gluc: [20, 900], gcs: [3, 15], pain: [0, 10]
+};
+function inTableRange(key, v) {
+  var r = TABLE_RANGE[key];
+  return !r || (v >= r[0] && v <= r[1]);
+}
 function cellNumber(cell) {
   var m = /(-?\d{1,3}(?:\.\d{1,2})?)/.exec(String(cell || '').replace(/,/g, ''));
   return m ? parseFloat(m[1]) : null;
 }
 function extractTabularVitals(text) {
   var lines = (text || '').split('\n');
-  var bag = {}, rows = [], pains = [], offset = 0, map = null, mapAge = 0;
+  var bag = {}, rows = [], pains = [], offset = 0, map = null, cols = null, mapAge = 0;
   lines.forEach(function (line) {
     var start = offset;
     offset += line.length + 1;
     var cells = splitTableRow(line);
     if (!cells || cells.length < 3) { if (map && ++mapAge > 2) map = null; return; }
+    var hc = headerColumns(line);
+    if (hc) { cols = hc; map = null; mapAge = 0; return; }
     var hm = headerMap(cells);
-    if (hm) { map = hm; mapAge = 0; return; }
-    if (!map) return;
+    if (hm) { map = hm; cols = null; mapAge = 0; return; }
+    if (!map && !cols) return;
     /* a data row under a known header: at least two cells have to be numbers */
     var numeric = cells.filter(function (c) { return /\d/.test(c); }).length;
-    if (numeric < 2) { if (++mapAge > 2) map = null; return; }
+    if (numeric < 2) { map = null; cols = null; return; }
+    var byKey = cols ? assignByPosition(line, cols) : null;
+    /* a row under a vitals header still has to carry a vital sign, or it is
+       some other table that happens to sit below one */
+    if (byKey) {
+      var anchor = ['sbp', 'bp', 'hr', 'spo2', 'rr'].some(function (k) {
+        return byKey[k] !== undefined && /\d/.test(byKey[k]);
+      });
+      if (!anchor) { mapAge++; if (mapAge > 1) { cols = null; } return; }
+    }
     mapAge = 0;
     var used = false;
-    Object.keys(map).forEach(function (ci) {
-      var key = map[ci], cell = cells[ci];
+    var keys = byKey ? Object.keys(byKey) : Object.keys(map);
+    keys.forEach(function (ci) {
+      var key = byKey ? ci : map[ci];
+      var cell = byKey ? byKey[ci] : cells[ci];
       if (cell === undefined || cell === '' || key === 'time') return;
       var cellIdx = start + line.indexOf(cell);
       if (cellIdx < start) cellIdx = start;
@@ -2296,12 +2390,8 @@ function extractTabularVitals(text) {
       var v = cellNumber(cell);
       if (v === null) return;
       if (key === 'tempF' && v >= 25 && v <= 45 && !/f/i.test(cell)) v = v * 9 / 5 + 32;
-      if (key === 'spo2' && (v < 40 || v > 100)) return;
-      if (key === 'gcs' && (v < 3 || v > 15)) return;
-      if (key === 'pain') {
-        if (v < 0 || v > 10) return;
-        pains.push({ v: v, idx: cellIdx });
-      }
+      if (!inTableRange(key, v)) return;
+      if (key === 'pain') pains.push({ v: v, idx: cellIdx });
       pushHit(bag, key, key === 'tempF' ? Math.round(v * 10) / 10 : v, cellIdx);
       used = true;
     });
@@ -4478,6 +4568,45 @@ function loadPdfJs() {
   return pdfjsReady;
 }
 
+/* pdf.js hands back a flat list of text fragments with no line structure, so
+   joining them with spaces turns a whole page — flowsheet rows and all — into
+   one line. Every value then sits beside a value from a different column and a
+   different time. Each fragment carries its position, so lines are rebuilt from
+   the vertical coordinate and column breaks from the horizontal gap. This is
+   what lets a real ePCR vitals table be read as a table. */
+function pdfItemsToLines(tc) {
+  var items = (tc.items || []).filter(function (it) { return it.str && it.str.trim().length; });
+  if (!items.length) return '';
+  var rows = [];
+  items.forEach(function (it) {
+    var tr = it.transform || [1, 0, 0, 1, 0, 0];
+    var x = tr[4], y = tr[5];
+    var row = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (Math.abs(rows[i].y - y) <= 2.5) { row = rows[i]; break; }
+    }
+    if (!row) { row = { y: y, items: [] }; rows.push(row); }
+    row.items.push({ x: x, w: it.width || (it.str.length * 4), s: it.str });
+  });
+  rows.sort(function (a, b) { return b.y - a.y; });          /* top of page first */
+  /* Pad each fragment out to its horizontal position instead of just marking a
+     break. An empty cell then leaves a gap of the right width, so a value still
+     sits underneath its own column heading — which is the only way to tell an
+     empty ETCO2 column from an absent one. */
+  var CHAR_W = 4.9;
+  return rows.map(function (r) {
+    r.items.sort(function (a, b) { return a.x - b.x; });
+    var out = '';
+    r.items.forEach(function (it) {
+      var col = Math.max(0, Math.round(it.x / CHAR_W));
+      if (col > out.length) out += new Array(col - out.length + 1).join(' ');
+      else if (out.length && !/\s$/.test(out)) out += ' ';
+      out += it.s;
+    });
+    return out.replace(/\s+$/, '');
+  }).filter(function (l) { return l.trim().length; }).join('\n');
+}
+var lastPdfPages = null;   /* {total, withText, empty:[pageNumbers]} for the last PDF read */
 function extractPdfText(file) {
   return loadPdfJs().then(function () {
     return file.arrayBuffer();
@@ -4486,14 +4615,16 @@ function extractPdfText(file) {
   }).then(function (doc) {
     var chain = Promise.resolve('');
     var pages = Math.min(doc.numPages, 40);
+    lastPdfPages = { total: doc.numPages, withText: 0, empty: [] };
     for (var p = 1; p <= pages; p++) {
       (function (pageNum) {
         chain = chain.then(function (acc) {
           return doc.getPage(pageNum).then(function (page) {
             return page.getTextContent();
           }).then(function (tc) {
-            var txt = tc.items.map(function (it) { return it.str; }).join(' ');
-            return acc + '\n' + txt;
+            var lines = pdfItemsToLines(tc);
+            if (lines.trim()) lastPdfPages.withText++; else lastPdfPages.empty.push(pageNum);
+            return acc + '\n' + lines;
           });
         });
       })(p);
@@ -4718,7 +4849,8 @@ function renderFiles() {
         ? '<img src="' + a.thumb + '" style="width:34px;height:34px;object-fit:cover;border-radius:5px">'
         : '<span style="font-weight:700;color:' + (a.chars ? 'var(--blue)' : 'var(--red)') + ';font-size:10.5px">' + esc(KIND_LABEL[a.kind] || 'FILE') + '</span>') +
       '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(a.name) + '</span>' +
-      '<span style="color:var(--muted)">' + (a.kind === 'image' ? 'photo' : (a.chars ? (a.chars >= 1000 ? Math.round(a.chars / 1000) + 'k' : a.chars) + ' chars extracted' : 'no text found')) + '</span>' +
+      '<span style="color:var(--muted)">' + (a.kind === 'image' ? 'photo' : (a.chars ? (a.chars >= 1000 ? Math.round(a.chars / 1000) + 'k' : a.chars) + ' chars' : 'no text found') +
+        (a.pages ? ', ' + a.pagesRead + '/' + a.pages + ' pages readable' : '')) + '</span>' +
       '<span data-rmfile="' + i + '" style="color:var(--muted);cursor:pointer;padding:2px 6px" title="Remove">&times;</span>' +
     '</div>';
   }).join('');
@@ -4766,9 +4898,19 @@ function handleFiles(files) {
         return;
       }
       status.textContent = 'Reading ' + file.name + '…';
+      lastPdfPages = null;
       return extractDocumentText(file, kind).then(function (text) {
         var clean = (text || '').trim();
-        attachments.push({ name: file.name, kind: kind, chars: clean.length });
+        var pg = lastPdfPages;
+        attachments.push({ name: file.name, kind: kind, chars: clean.length,
+          pages: pg ? pg.total : null, pagesRead: pg ? pg.withText : null });
+        /* a scanned page has no text to extract; saying so turns an empty field
+           into an explanation instead of a mystery */
+        if (pg && pg.empty.length) {
+          problems.push(pg.empty.length + ' of ' + pg.total + ' page(s) in ' + file.name +
+            ' are scanned images with no text layer (page' + (pg.empty.length > 1 ? 's ' : ' ') +
+            pg.empty.join(', ') + '). Nothing written on them can be read — crew names, times, or narrative on those pages must be entered by hand, or photograph them and attach the photos.');
+        }
         if (clean) {
           extracted++;
           var ta = document.getElementById('chart');
