@@ -386,9 +386,25 @@ button.primary:hover { filter: brightness(1.07); }
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Sends the chart to Anthropic's Claude, which reads it like a human reviewer instead of keyword matching. Requires an API key from <b>console.anthropic.com</b> (stored only on this device). The chart text is transmitted to Anthropic's servers for analysis, so use de-identified charts unless your organization has a healthcare data agreement in place. Typical cost is a few cents per chart.</div>
         <label>Anthropic API Key</label>
         <input type="password" id="apikey" placeholder="sk-ant-..." autocomplete="off">
-        <label style="margin-top:8px">Central QI Log &mdash; Apps Script URL (optional)</label>
+        <label style="margin-top:8px">Trauma Star QI Report Google Sheet &mdash; Apps Script URL</label>
         <input type="url" id="loghook" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
-        <div style="font-size:11.5px;color:var(--muted);margin-top:4px">When set, each completed AI review is logged to the <b>Trauma Star QI Report</b> Google Sheet: date, OCA #, crew, reviewer, score, and pass/fail results. The chart text itself is never sent to the sheet.</div>
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <button type="button" id="testhook" style="flex:1;min-width:150px;background:#fff;border:1px solid var(--blue);color:var(--blue);font:inherit;font-weight:600;padding:8px;border-radius:8px;cursor:pointer">Test Connection</button>
+          <button type="button" id="setuphook" style="flex:1;min-width:150px;background:#fff;border:1px solid var(--ink-2);color:var(--ink);font:inherit;font-weight:600;padding:8px;border-radius:8px;cursor:pointer">Setup Steps</button>
+        </div>
+        <div id="hookstatus" style="font-size:12.5px;margin-top:6px"></div>
+        <div id="hooksetup" style="display:none;font-size:12.5px;color:var(--ink-2);margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fafbfc">
+          <div style="font-weight:700;margin-bottom:5px">Connecting the Trauma Star QI Report sheet</div>
+          <div style="margin-bottom:4px">1. Open (or create) a Google Sheet named <b>Trauma Star QI Report</b>.</div>
+          <div style="margin-bottom:4px">2. In that sheet: <b>Extensions &rarr; Apps Script</b>. Delete whatever is in the editor.</div>
+          <div style="margin-bottom:4px">3. Paste the code below and save it.</div>
+          <div style="margin-bottom:4px">4. <b>Deploy &rarr; New deployment</b>. Click the gear, choose <b>Web app</b>. Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>. Deploy, and authorize when Google asks.</div>
+          <div style="margin-bottom:4px">5. Copy the <b>/exec</b> URL it gives you, paste it in the box above, and press <b>Test Connection</b>.</div>
+          <div style="margin-bottom:6px">The script creates two tabs on its own: <b>Flight Log</b> and <b>QI Review</b>. Rows are keyed by OCA number, so re-sending a corrected review replaces its row instead of adding a duplicate.</div>
+          <button type="button" id="copyscript" style="background:var(--blue);color:#fff;border:none;font:inherit;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer">Copy the Apps Script code</button>
+          <span id="copystatus" style="margin-left:8px;color:var(--green)"></span>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:7px">Who has access must be <b>Anyone</b> because this app posts from the browser with no Google login. Nothing about the patient is sent &mdash; no name, no chart text, no identifiers. Treat the URL like a password: anyone who has it can write rows to the sheet.</div>
+        </div>
         <label style="margin-top:10px">Scrub Identifiers (de-identify before AI review)</label>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <input type="text" id="scrubname" placeholder="Patient name &mdash; removes every occurrence" autocomplete="off" style="flex:1;min-width:160px">
@@ -4450,9 +4466,175 @@ document.getElementById('apikey').value = localStorage.getItem('tsqi_apikey') ||
    Only de-identified review data is sent — never the chart text. */
 var QI_LOG_WEBHOOK = '';
 document.getElementById('loghook').value = localStorage.getItem('tsqi_loghook') || '';
+/* ---------- Connecting the Trauma Star QI Report sheet ----------
+   An Apps Script web app is easy to deploy slightly wrong — left as a draft,
+   restricted to Google accounts, or redeployed without a new version — and each
+   of those fails silently from the browser. Test Connection does a real round
+   trip and names the specific problem instead of "sync failed". */
+function hookStatus(msg, tone) {
+  var el = document.getElementById('hookstatus');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.style.color = tone === 'ok' ? 'var(--green)' : tone === 'bad' ? 'var(--red)' : tone === 'warn' ? 'var(--amber)' : 'var(--muted)';
+}
+function hookUrl() {
+  return (document.getElementById('loghook').value || '').trim() || QI_LOG_WEBHOOK;
+}
+function testHook() {
+  var url = hookUrl();
+  if (!url) { hookStatus('Paste the Apps Script <b>/exec</b> URL above first. Press <b>Setup Steps</b> if you have not deployed it yet.', 'bad'); return; }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/.test(url)) {
+    hookStatus('That does not look like a deployed Apps Script URL. It must start with <b>https://script.google.com/macros/s/</b> and end in <b>/exec</b>. A URL ending in <b>/dev</b> is the draft version and only works while you are signed in &mdash; use Deploy, New deployment to get the /exec URL.', 'bad');
+    return;
+  }
+  hookStatus('Testing the connection to the sheet…', 'muted');
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 20000);
+  fetch(url, { method: 'POST', signal: controller.signal, body: JSON.stringify({ action: 'ping', sheet: 'Flight Log' }) })
+    .then(function (r) {
+      clearTimeout(timer);
+      return r.text().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
+    })
+    .then(function (r) {
+      if (!r.ok) {
+        hookStatus('The sheet answered with HTTP ' + r.status + '. Open <b>Deploy, Manage deployments</b> and confirm the web app is set to <b>Execute as: Me</b> and <b>Who has access: Anyone</b>.', 'bad');
+        return;
+      }
+      if (/<html|Google Drive|Sign in|accounts\.google/i.test(r.body)) {
+        hookStatus('Google returned a sign-in page instead of the script. The deployment is set to require a Google account &mdash; change <b>Who has access</b> to <b>Anyone</b> and deploy a new version.', 'bad');
+        return;
+      }
+      var parsed = null;
+      try { parsed = JSON.parse(r.body); } catch (e) {}
+      if (parsed && parsed.ok) {
+        hookStatus('<b>Connected.</b> The Trauma Star QI Report sheet answered' +
+          (parsed.spreadsheet ? ' (' + esc(parsed.spreadsheet) + ')' : '') +
+          '. Saved reviews on Trauma Star North or South will sync to the Flight Log tab, and each completed AI review to the QI Review tab.', 'ok');
+        return;
+      }
+      if (parsed && parsed.error) {
+        hookStatus('The script ran but reported an error: <b>' + esc(parsed.error) + '</b>', 'bad');
+        return;
+      }
+      hookStatus('The URL answered, but not with the expected reply. The deployment is probably running an older version of the code &mdash; paste the script again, then use <b>Deploy, Manage deployments, edit, New version</b>.', 'warn');
+    })
+    .catch(function (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        hookStatus('The sheet did not answer within 20 seconds. Check the URL and your connection, then try again.', 'bad');
+        return;
+      }
+      /* a browser-blocked reply still usually means the row was written */
+      fetch(url, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'ping', sheet: 'Flight Log' }) })
+        .then(function () {
+          hookStatus('The request was sent but this browser could not read the reply. That is usually an older deployment. Redeploy with <b>Deploy, Manage deployments, edit, New version</b>, then test again.', 'warn');
+        })
+        .catch(function () {
+          hookStatus('Could not reach the script at all. Check that the URL is right, that the deployment is active, and that you are online.', 'bad');
+        });
+    });
+}
+var APPS_SCRIPT_SOURCE = [
+  '/**',
+  ' * Trauma Star QI Report - Google Sheets endpoint',
+  ' * Writes two tabs: "Flight Log" and "QI Review". Rows are keyed by OCA number,',
+  ' * so re-sending a corrected review replaces its row instead of duplicating it.',
+  ' */',
+  'function doPost(e) {',
+  '  try {',
+  '    var body = JSON.parse(e.postData.contents);',
+  '    var ss = SpreadsheetApp.getActiveSpreadsheet();',
+  '    if (body.action === "ping") {',
+  '      return ContentService',
+  '        .createTextOutput(JSON.stringify({ ok: true, ping: true, spreadsheet: ss.getName() }))',
+  '        .setMimeType(ContentService.MimeType.JSON);',
+  '    }',
+  '    var tabName = body.sheet || "QI Review";',
+  '    var header = body.header || [];',
+  '    var rows = body.rows || [];',
+  '    var keyColumn = body.keyColumn || null;',
+  '    var sh = ss.getSheetByName(tabName) || ss.insertSheet(tabName);',
+  '    if (header.length) {',
+  '      if (sh.getMaxColumns() < header.length) {',
+  '        sh.insertColumnsAfter(sh.getMaxColumns(), header.length - sh.getMaxColumns());',
+  '      }',
+  '      var current = sh.getLastRow() > 0',
+  '        ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]',
+  '        : [];',
+  '      if (current.join("") !== header.join("")) {',
+  '        sh.getRange(1, 1, 1, header.length).setValues([header]);',
+  '        sh.getRange(1, 1, 1, header.length)',
+  '          .setFontWeight("bold").setBackground("#1a3a5c").setFontColor("#ffffff");',
+  '        sh.setFrozenRows(1);',
+  '      }',
+  '    }',
+  '    var keyIdx = keyColumn ? header.indexOf(keyColumn) : -1;',
+  '    var existing = {};',
+  '    if (keyIdx >= 0 && sh.getLastRow() > 1) {',
+  '      var keys = sh.getRange(2, keyIdx + 1, sh.getLastRow() - 1, 1).getValues();',
+  '      for (var i = 0; i < keys.length; i++) {',
+  '        var k = String(keys[i][0]).trim();',
+  '        if (k) existing[k] = i + 2;',
+  '      }',
+  '    }',
+  '    var appended = 0, updated = 0;',
+  '    for (var r = 0; r < rows.length; r++) {',
+  '      var row = rows[r];',
+  '      while (row.length < header.length) row.push("");',
+  '      var key = keyIdx >= 0 ? String(row[keyIdx]).trim() : "";',
+  '      if (key && existing[key]) {',
+  '        sh.getRange(existing[key], 1, 1, row.length).setValues([row]);',
+  '        updated++;',
+  '      } else {',
+  '        sh.appendRow(row);',
+  '        if (key) existing[key] = sh.getLastRow();',
+  '        appended++;',
+  '      }',
+  '    }',
+  '    if (appended || updated) sh.autoResizeColumns(1, Math.min(header.length, 12));',
+  '    return ContentService',
+  '      .createTextOutput(JSON.stringify({ ok: true, sheet: tabName, appended: appended, updated: updated }))',
+  '      .setMimeType(ContentService.MimeType.JSON);',
+  '  } catch (err) {',
+  '    return ContentService',
+  '      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))',
+  '      .setMimeType(ContentService.MimeType.JSON);',
+  '  }',
+  '}',
+  '',
+  'function doGet() {',
+  '  return ContentService.createTextOutput("Trauma Star QI Report endpoint is running. Post JSON to this URL.");',
+  '}'
+].join('\n');
+
 document.getElementById('loghook').addEventListener('change', function () {
   try { localStorage.setItem('tsqi_loghook', this.value.trim()); } catch (e) {}
+  hookStatus('URL saved on this device. Press <b>Test Connection</b> to confirm the sheet answers.', 'muted');
 });
+document.getElementById('testhook').addEventListener('click', testHook);
+document.getElementById('setuphook').addEventListener('click', function () {
+  var box = document.getElementById('hooksetup');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('copyscript').addEventListener('click', function () {
+  var done = function () {
+    var st = document.getElementById('copystatus');
+    st.textContent = 'Copied — paste it into the Apps Script editor.';
+    setTimeout(function () { st.textContent = ''; }, 6000);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(APPS_SCRIPT_SOURCE).then(done).catch(function () {
+      window.prompt('Copy the script below, then paste it into the Apps Script editor:', APPS_SCRIPT_SOURCE);
+    });
+  } else {
+    window.prompt('Copy the script below, then paste it into the Apps Script editor:', APPS_SCRIPT_SOURCE);
+  }
+});
+if ((localStorage.getItem('tsqi_loghook') || '').trim()) {
+  hookStatus('A sheet URL is saved on this device. Press <b>Test Connection</b> to confirm it still answers.', 'muted');
+} else {
+  hookStatus('No sheet connected yet — reviews stay on this device. Press <b>Setup Steps</b> to connect the Trauma Star QI Report sheet.', 'muted');
+}
 function logToCentralSheet() {
   var url = (document.getElementById('loghook').value || '').trim() || QI_LOG_WEBHOOK;
   if (!url) return;

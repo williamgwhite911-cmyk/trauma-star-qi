@@ -38,6 +38,15 @@ function doPost(e) {
     var keyColumn = body.keyColumn || null;
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // The app's "Test Connection" button sends this. It proves the deployment
+    // is reachable and correctly configured without writing a junk row.
+    if (body.action === 'ping') {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, ping: true, spreadsheet: ss.getName() }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sh = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
 
     // Write or refresh the header row, widening the sheet if columns were added.
