@@ -375,8 +375,10 @@ button.primary:hover { filter: brightness(1.07); }
         <div class="btnrow">
           <button id="savebtn">Save to Log</button>
           <button id="printbtn">Export PDF</button>
+          <button id="clearformbtn">Clear Form</button>
           <button id="resetbtn">New Review</button>
         </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center"><b>Clear Form</b> empties every field, the chart box, and the uploaded files so you can start the next chart. Saved reviews in the log are untouched.</div>
         <button class="primary" id="savenewbtn" style="background:var(--green);margin-top:10px">Save + New Chart</button>
         <div style="font-size:11.5px;color:var(--muted);margin-top:5px;text-align:center">Archives this review to the log, opens the PDF save dialog (choose your QI folder), then clears everything for the next chart.</div>
       </div>
@@ -1103,6 +1105,46 @@ function reflectToggles() {
 
 /* Pull demographics from the chart into any header field the reviewer left blank.
    Never overwrites a field that already has a value. */
+/* Does a name written in the chart belong to somebody on the roster? Matching
+   is on surname plus a first initial or first name, so "M. Marlow", "Marlow,
+   Megan" and "Megan Marlow" all land on the same person, while "K. Lane" — who
+   is not on the roster — lands on nobody. */
+function rosterMatch(candidate, roster) {
+  var c = String(candidate || '').replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!c) return null;
+  var parts = c.split(' ').filter(Boolean);
+  if (!parts.length) return null;
+  var cLast = parts[parts.length - 1], cFirst = parts[0];
+  for (var i = 0; i < roster.length; i++) {
+    var r = roster[i].replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    var rp = r.split(' ').filter(Boolean);
+    var rLast = rp[rp.length - 1], rFirst = rp[0];
+    if (cLast !== rLast) continue;
+    if (parts.length === 1) return roster[i];
+    if (cFirst === rFirst) return roster[i];
+    if (cFirst.length <= 2 && rFirst.charAt(0) === cFirst.charAt(0)) return roster[i];
+  }
+  return null;
+}
+function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
+  var el = document.getElementById(fieldId);
+  if (!el || el.value.trim()) return null;
+  /* every "Name, RN" style mention in the chart, in order */
+  var NAME = "([A-Z][\\w'’-]+(?:\\s+[A-Z][\\w'’-]*\\.?){0,2}|[A-Z]\\.\\s?[A-Z][\\w'’-]+)";
+  var patterns = [
+    new RegExp('\\b' + NAME + '\\s*,\\s*(?:' + roleRx.source + ')', 'g'),
+    new RegExp('(?:' + roleRx.source + ')\\s*[:\\-]?\\s*' + NAME, 'gi')
+  ];
+  for (var p = 0; p < patterns.length; p++) {
+    var rx = patterns[p], m, guard = 0;
+    while ((m = rx.exec(text)) && guard++ < 60) {
+      if (m.index === rx.lastIndex) rx.lastIndex++;
+      var hit = rosterMatch(m[1], roster);
+      if (hit) { setFieldValue(el, hit + ', ' + suffix); return label; }
+    }
+  }
+  return null;
+}
 function autofillFromChart(text) {
   var filled = [];
   function fill(id, val, label) {
@@ -1110,9 +1152,19 @@ function autofillFromChart(text) {
     if (el && !el.value.trim() && val) { setFieldValue(el, String(val).trim()); filled.push(label); }
   }
   var m;
-  var ocaRe = /oca[#:\s-]*([a-z0-9][a-z0-9-]{1,15})/gi, om;
+  /* \boca\b matters: without it "Location:" supplies an "oca" and the capture
+     picks up the rest of the word. An OCA number always contains a digit. */
+  /* a paired header, "Date / OCA   2026-07-21 / PC-1002", puts the number after
+     the date rather than after the word */
+  m = /\bdate\s*\/\s*oca\b\s*[:#-]?\s*\S+\s*\/\s*([a-z0-9][a-z0-9-]{1,15})/i.exec(text);
+  if (m && /\d/.test(m[1])) fill('f_oca', m[1], 'OCA');
+  var ocaRe = /\boca\s*(?:number|no\.?|#)?\s*[:#-]?\s*([a-z0-9][a-z0-9-]{1,15})/gi, om;
   while ((om = ocaRe.exec(text))) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(om[1])) { fill('f_oca', om[1], 'OCA'); break; }
+    var cand = om[1];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cand)) continue;
+    if (!/\d/.test(cand)) continue;
+    fill('f_oca', cand, 'OCA');
+    break;
   }
   m = /(\d{4}-\d{2}-\d{2})/.exec(text);
   if (m) fill('f_date', m[1], 'date');
@@ -1122,11 +1174,21 @@ function autofillFromChart(text) {
     var sel = document.getElementById('f_aircraft');
     if (!sel.value) { sel.value = 'Trauma Star ' + m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase(); filled.push('aircraft'); }
   }
-  m = /chief\s+complaint[:\s]+([^\n.;]{3,60})/i.exec(text); if (m) fill('f_cc', m[1], 'chief complaint');
+  /* stop at the next label or at the run of spaces a PDF puts between columns,
+     so "Septic shock, ventilated" does not swallow "Pilot A. Turner" */
+  m = /chief\s+complaint\s*[:\-]?\s*([^\n.;]{3,60}?)(?=\s{2,}|\s*\b(?:pilot|crew|flight\s+nurse|nurse|medic|paramedic|aircraft|date|oca|patient|age|dob|weight|sex|gender|diagnosis|impression|history|hpi)\b|[\n.;]|$)/i.exec(text);
+  if (m) fill('f_cc', m[1].trim(), 'chief complaint');
   var NAME = "([A-Z]\\.(?:\\s?[A-Z][\\w'-]+)+|[A-Z][\\w'-]+(?:\\s[A-Z]\\.?[\\w'-]*){0,2})";
   m = new RegExp('pilot[:\\s]+' + NAME, 'i').exec(text); if (m) fill('f_pilot', m[1], 'pilot');
-  m = new RegExp('\\b' + NAME + ',\\s*RN\\b').exec(text); if (m) fill('f_rn', m[1] + ', RN', 'nurse');
-  m = new RegExp('\\b' + NAME + ',\\s*(?:Paramedic|EMT-?P|Medic)\\b').exec(text); if (m) fill('f_medic', m[1] + ', Paramedic', 'medic');
+  /* Crew names are chosen from the Trauma Star roster, never invented from the
+     chart. A chart names plenty of other people — the receiving nurse, the
+     sending physician, the ground crew — and writing one of those into the
+     dropdown both picks the wrong person and permanently adds a stranger to the
+     pick list. Only a name that matches somebody on the roster is filled in. */
+  var crewRn = fillCrewFromRoster(text, 'f_rn', /\bRN\b|\bR\.N\.\b|nurse/i, QI_RNS, 'RN', 'nurse');
+  if (crewRn) filled.push(crewRn);
+  var crewMedic = fillCrewFromRoster(text, 'f_medic', /\bParamedic\b|\bEMT-?P\b|\bMedic\b/i, QI_MEDICS, 'Paramedic', 'medic');
+  if (crewMedic) filled.push(crewMedic);
   var PLACE = "([A-Z][\\w'’-]*(?:\\s[A-Z0-9][\\w'’-]*){0,4})";
   m = new RegExp('from\\s+' + PLACE + '\\s+to\\s+' + PLACE).exec(text);
   if (m) { fill('f_pickup', m[1], 'pickup'); fill('f_dropoff', m[2], 'dropoff'); }
@@ -4228,6 +4290,14 @@ function renderFiles() {
 function handleFiles(files) {
   var status = document.getElementById('filestatus');
   var incoming = Array.prototype.slice.call(files);
+  /* A chart already loaded means this upload is either the next call or another
+     page of the same one. Appending silently is what makes the analysis look
+     broken: two charts get scored as one and the header keeps the old call. */
+  var existing = document.getElementById('chart').value.trim();
+  if (existing.length > 200) {
+    var replace = confirm('A chart is already loaded (' + existing.length.toLocaleString() + ' characters).\n\nOK — start a new review with this document, clearing the current one.\nCancel — add these pages to the chart already loaded.');
+    if (replace) { if (!clearForm(true)) return; }
+  }
   if (attachments.length + incoming.length > MAX_FILES) {
     incoming = incoming.slice(0, MAX_FILES - attachments.length);
     status.textContent = 'Limit is ' + MAX_FILES + ' documents per review; extra files were skipped.';
@@ -4413,6 +4483,52 @@ document.getElementById('printbtn').addEventListener('click', function () {
   window.print();
   document.title = oldTitle;
 });
+/* Empty every cell on the page without touching the saved log. This is the
+   button to press between charts: uploading a second document on top of a first
+   one appends its text and leaves the header showing the previous call, which
+   makes the analysis look broken when it is really analysing two charts at once. */
+function clearForm(silent) {
+  if (!silent && !confirm('Clear every field, the chart text, and the uploaded files so you can start the next chart?\n\nSaved reviews in the Review Log are kept.')) return false;
+  document.querySelectorAll('#f_date, #f_oca, #f_age, #f_weight, #f_cc, #f_dx, #f_rn, #f_medic, #f_pilot, #f_pickup, #f_dropoff, #f_pickupPick, #f_dropoffPick, #f_aircraft, #f_calltype, #f_icd, #f_icd2, #f_hcpcs, #f_miles, #f_tdisp, #f_tlift, #f_tland, #f_tpt, #f_tdep, #f_tarr, #f_ttoc, #f_tclear, #f_reviewer, #f_revdate, #f_comments, #f_sigstatus, #f_sigrep, #f_sigrel, #f_sigreason, #f_sigreasontext, #f_sigwitness, #f_sigwhen, #scrubname')
+    .forEach(function (el) { el.value = ''; });
+  document.getElementById('chart').value = '';
+  attachments = [];
+  renderFiles();
+  state.mission = null; state.intub = null; state.meds = null;
+  state.results = {}; state.analyzed = false;
+  state.langHits = []; state.riskHits = [];
+  state.vitals = null; state.vitalTableRows = []; state.vitalTablePains = [];
+  state.narrative = null; state.clinical = null; state.concord = null; state.signature = null;
+  state.aiReviewed = false; state.aiNote = '';
+  state.aiDiscrep = null; state.aiCare = null; state.aiVitals = null;
+  state.aiMeds = null; state.aiProcs = null; state.aiLabs = null;
+  CRITERIA = BASE_CRITERIA.slice();
+  document.querySelectorAll('.tg').forEach(function (e) { e.classList.remove('on'); e.classList.remove('flag'); });
+  ['summarycard','vitalscard','paincard','clinauditcard','concordcard','camtscard','langcard','riskcard','discrepcard','ccarecard']
+    .forEach(function (id) { var c = document.getElementById(id); if (c) c.style.display = 'none'; });
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('printheader').innerHTML = '';
+  document.getElementById('autofillnote').textContent = '';
+  document.getElementById('extractreport').innerHTML = '';
+  document.getElementById('filestatus').textContent = '';
+  document.getElementById('scrubout').innerHTML = '';
+  document.getElementById('selwarn').style.display = 'none';
+  document.getElementById('score').textContent = '--';
+  document.getElementById('score').className = 'scorenum';
+  document.getElementById('scorelabel').textContent = 'Awaiting analysis';
+  document.getElementById('scorelabel').className = 'scorelabel';
+  document.getElementById('scoresub').textContent = 'Enter flight information and paste the chart, then press Analyze.';
+  document.getElementById('meterbar').style.width = '0%';
+  document.getElementById('pills').innerHTML = '';
+  localStorage.removeItem('tsqi');
+  checkHeader();
+  renderBilling();
+  renderTimes();
+  renderFlightLog();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  return true;
+}
+document.getElementById('clearformbtn').addEventListener('click', function () { clearForm(false); });
 document.getElementById('resetbtn').addEventListener('click', function () {
   if (!confirm('Clear this review and start a new one? Saved log entries are kept.')) return;
   localStorage.removeItem('tsqi');
