@@ -373,6 +373,7 @@ button.primary:hover { filter: brightness(1.07); }
         </div>
         <div id="filelist" style="margin-top:8px"></div>
         <div id="filestatus" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+        <div id="ocrwrap"></div>
         <div id="extractreport"></div>
 
         <label style="margin-top:16px">Chart Narrative / Documentation</label>
@@ -1301,6 +1302,26 @@ function autofillFromChart(text) {
   m = new RegExp('from\\s+' + PLACE + '\\s+to\\s+' + PLACE).exec(text);
   if (m) { fill('f_pickup', m[1], 'pickup'); fill('f_dropoff', m[2], 'dropoff'); }
   else { m = new RegExp('transport(?:ed)?\\s+to\\s+' + PLACE).exec(text); if (m) fill('f_dropoff', m[1], 'dropoff'); }
+  /* Every ePCR labels these differently. NEMSIS eTimes wording is the common
+     denominator, and a flowsheet writes 07:30 where a narrative writes 0730. */
+  var TIME_TOKEN = '\\b([01]?\\d|2[0-3]):?[0-5]\\d\\b';
+  var TIME_LABELS = [
+    ['f_tdisp', '(?:unit\\s+)?(?:notified\\s+by\\s+dispatch|dispatch(?:ed)?(?:\\s+notified)?|tones?|toned\\s+out|call\\s+received|alarm|page)'],
+    ['f_tlift', '(?:unit\\s+)?(?:en\\s*-?\\s*route|enroute|responding|wheels\\s*up|lift(?:ed)?\\s*off|airborne|departed\\s+base)'],
+    ['f_tland', '(?:unit\\s+)?(?:arrived\\s+(?:on\\s+)?scene|arrival\\s+at\\s+scene|on\\s*-?\\s*scene|at\\s+scene|landed(?:\\s+at\\s+(?:scene|sending|facility|lz))?|arrived\\s+at\\s+(?:the\\s+)?(?:sending|referring)\\s+facility)'],
+    ['f_tpt',   '(?:arrived\\s+at\\s+patient|at\\s+patient(?:\\s+side)?|patient\\s+contact|contact\\s+with\\s+patient|at\\s+(?:the\\s+)?bedside|assumed\\s+care)'],
+    ['f_tdep',  '(?:unit\\s+)?(?:left\\s+scene|departed\\s+scene|depart(?:ed|ure)?(?:\\s+with\\s+patient)?|scene\\s+departure|took\\s+off|wheels\\s+up\\s+with\\s+patient)'],
+    ['f_tarr',  '(?:patient\\s+)?(?:arrived\\s+at\\s+(?:destination|receiving|hospital)|arrival\\s+at\\s+destination|at\\s+destination|landed\\s+at\\s+(?:receiving|destination|hospital)|destination\\s+arrival)'],
+    ['f_ttoc',  '(?:transfer(?:red)?\\s+(?:of\\s+)?care|care\\s+transferred|patient\\s+transferred|turned\\s+over|hand(?:ed)?\\s*-?\\s*off)'],
+    ['f_tclear','(?:unit\\s+)?(?:back\\s+in\\s+service|in\\s+service|available|cleared)']
+  ];
+  TIME_LABELS.forEach(function (pair) {
+    var el = document.getElementById(pair[0]);
+    if (!el || el.value.trim()) return;
+    var rx = new RegExp(pair[1] + '[^0-9\\n]{0,28}' + TIME_TOKEN, 'i');
+    var mm = rx.exec(text);
+    if (mm) fill(pair[0], mm[0].match(/([01]?\d|2[0-3]):?[0-5]\d\s*$/)[0].replace(':', ''), pair[0].replace('f_t', '') + ' time');
+  });
   m = /dispatch[^0-9\n]{0,30}(\d{3,4})\s*\/\s*(\d{3,4})/i.exec(text);
   if (m) { fill('f_tdisp', m[1], 'dispatch time'); fill('f_tlift', m[2], 'wheels-up time'); }
   else {
@@ -2113,6 +2134,29 @@ function renderTimes() {
   }
   if (t.patientTotal !== null) {
     rows += billRow(true, 'Total patient contact time <b>' + fmtDur(t.patientTotal) + '</b> &mdash; this is the window your serial vitals and reassessments have to cover.');
+  }
+  /* Nothing found at all is a different problem from a couple of gaps: either
+     the times live on a page with no text layer, or this export does not carry
+     them. Say which, and offer the timestamps the chart does contain. */
+  if (t.entered === 0) {
+    var chartTxt = document.getElementById('chart').value;
+    var stamps = [];
+    var srx = /\b([01]?\d|2[0-3]):[0-5]\d\b/g, sm;
+    while ((sm = srx.exec(chartTxt))) stamps.push(sm[0]);
+    var uniq = stamps.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
+    var scanned = attachments.filter(function (a) { return a.pages && a.pagesRead < a.pages; });
+    rows = '<div style="border:2px solid var(--amber);background:var(--amber-bg);border-radius:8px;padding:10px 12px;margin-bottom:8px">' +
+      '<div style="font-size:13px;font-weight:800;color:var(--amber)">NO MISSION TIMES FOUND IN THIS DOCUMENT</div>' +
+      '<div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">' +
+      (scanned.length
+        ? 'This chart has page(s) with no text layer, and unit times are usually on them. Nothing written on a scanned page can be read.'
+        : 'The uploaded text carries no dispatch, en route, on scene, departure, or transfer-of-care time under any label this tool recognizes.') +
+      ' Enter them from the dispatch record or the run sheet — every interval on this page, and the response-time standards, depend on them.</div>' +
+      (uniq.length
+        ? '<div style="font-size:12.5px;color:var(--ink-2);margin-top:6px"><b>Times found in the document:</b> ' + esc(uniq.join(', ')) +
+          '<div style="margin-top:3px">On a scanned chart the incident-times table is read as two separate columns, so these arrive without their labels attached. Read them off the chart, match each one to its row, and type it into the boxes above. Optical recognition also misreads digits — a 0 becomes a 6, a 1 becomes a 7 — so check every value against the page rather than trusting this list.</div></div>'
+        : '') +
+      '</div>' + rows;
   }
   /* missing links in the chain */
   var missingT = TIME_STEPS.filter(function (st) {
@@ -4606,6 +4650,115 @@ function pdfItemsToLines(tc) {
     return out.replace(/\s+$/, '');
   }).filter(function (l) { return l.trim().length; }).join('\n');
 }
+/* ===================== OCR for scanned chart pages =====================
+   Many ePCR exports are print-to-image: the pages look like a chart but carry
+   no text layer, so everything on them — the incident times, the narrative, the
+   flow chart, the signatures — is invisible to any text extractor. Reading only
+   the pages that happen to have text means grading a fraction of the record.
+   This renders each image page and runs optical character recognition on it.
+   It is slow, so it is a button rather than something that happens on upload. */
+var ocrPending = [];      /* [{ file, name, pages: [n, ...] }] */
+var tesseractReady = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractReady) return tesseractReady;
+  tesseractReady = new Promise(function (resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = function () { resolve(); };
+    s.onerror = function () { reject(new Error('offline')); };
+    document.head.appendChild(s);
+  });
+  return tesseractReady;
+}
+function ocrStatus(msg, tone) {
+  var el = document.getElementById('ocrstatus');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.style.color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--green)' : 'var(--ink-2)';
+}
+function renderOcrButton() {
+  var wrap = document.getElementById('ocrwrap');
+  if (!wrap) return;
+  var total = ocrPending.reduce(function (n, x) { return n + x.pages.length; }, 0);
+  if (!total) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML =
+    '<button type="button" id="ocrbtn" style="width:100%;margin-top:8px;background:var(--blue);color:#fff;border:none;font:inherit;font-weight:600;padding:10px;border-radius:8px;cursor:pointer">' +
+    'Read the ' + total + ' scanned page' + (total === 1 ? '' : 's') + ' with OCR</button>' +
+    '<div style="font-size:11.5px;color:var(--muted);margin-top:4px">These pages are images, so their text has to be recognised rather than read. Expect roughly ten seconds per page. Everything stays on this device; nothing is uploaded.</div>' +
+    '<div id="ocrstatus" style="font-size:12.5px;margin-top:6px"></div>';
+  document.getElementById('ocrbtn').addEventListener('click', runOcr);
+}
+function runOcr() {
+  var btn = document.getElementById('ocrbtn');
+  btn.disabled = true; btn.style.opacity = '0.6';
+  ocrStatus('Loading the text recognition engine…');
+  var done = 0;
+  var total = ocrPending.reduce(function (n, x) { return n + x.pages.length; }, 0);
+  var worker = null;
+  loadTesseract()
+    .then(function () { return loadPdfJs(); })
+    .then(function () { return Tesseract.createWorker('eng'); })
+    .then(function (w) {
+      worker = w;
+      /* A form's small print does not survive 2x, and the default segmentation
+         merges columns. Scale 4 with single-column segmentation recovered an
+         incident-times column that was otherwise lost completely. */
+      return w.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '4' }).then(function () { return w; });
+    })
+    .then(function (w) {
+      var chain = Promise.resolve();
+      ocrPending.forEach(function (job) {
+        chain = chain.then(function () {
+          return job.file.arrayBuffer()
+            .then(function (buf) { return window.pdfjsLib.getDocument({ data: buf }).promise; })
+            .then(function (doc) {
+              var inner = Promise.resolve();
+              job.pages.forEach(function (pageNum) {
+                inner = inner.then(function () {
+                  ocrStatus('Reading page ' + pageNum + ' of ' + job.name + ' … (' + done + ' of ' + total + ' done)');
+                  return doc.getPage(pageNum).then(function (page) {
+                    /* small print in a flowsheet does not survive a low render scale */
+                    var vp = page.getViewport({ scale: 4 });
+                    var canvas = document.createElement('canvas');
+                    canvas.width = Math.round(vp.width);
+                    canvas.height = Math.round(vp.height);
+                    return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise
+                      .then(function () { return worker.recognize(canvas); })
+                      .then(function (res) {
+                        var txt = ((res.data && res.data.text) || '').trim();
+                        done++;
+                        if (txt) {
+                          var ta = document.getElementById('chart');
+                          ta.value += '\n\n===== ' + job.name + ' — page ' + pageNum + ' (read by OCR) =====\n' + txt;
+                        }
+                        canvas.width = canvas.height = 0;   /* release the bitmap */
+                      });
+                  });
+                });
+              });
+              return inner;
+            });
+        });
+      });
+      return chain;
+    })
+    .then(function () {
+      if (worker) worker.terminate();
+      ocrPending = [];
+      renderOcrButton();
+      autofillAfterUpload();
+      ocrStatus('<b>Read ' + done + ' page(s).</b> The text is in the chart box and the header has been filled in from it. OCR misreads characters — check every field it filled, especially times and doses, against the chart.', 'ok');
+    })
+    .catch(function (err) {
+      if (worker) { try { worker.terminate(); } catch (e) {} }
+      btn.disabled = false; btn.style.opacity = '';
+      ocrStatus(err && err.message === 'offline'
+        ? 'Reading scanned pages needs an internet connection the first time, to load the recognition engine. Reconnect and try again.'
+        : 'Could not read the scanned pages: ' + esc(String(err && err.message || err)) + '. Photograph the pages and attach them, or enter the values by hand.', 'bad');
+    });
+}
+
 var lastPdfPages = null;   /* {total, withText, empty:[pageNumbers]} for the last PDF read */
 function extractPdfText(file) {
   return loadPdfJs().then(function () {
@@ -4907,9 +5060,10 @@ function handleFiles(files) {
         /* a scanned page has no text to extract; saying so turns an empty field
            into an explanation instead of a mystery */
         if (pg && pg.empty.length) {
+          ocrPending.push({ file: file, name: file.name, pages: pg.empty.slice() });
           problems.push(pg.empty.length + ' of ' + pg.total + ' page(s) in ' + file.name +
             ' are scanned images with no text layer (page' + (pg.empty.length > 1 ? 's ' : ' ') +
-            pg.empty.join(', ') + '). Nothing written on them can be read — crew names, times, or narrative on those pages must be entered by hand, or photograph them and attach the photos.');
+            pg.empty.join(', ') + '). Incident times, the narrative, and the medication flow chart usually live on those pages. Use the OCR button below to read them.');
         }
         if (clean) {
           extracted++;
@@ -4926,6 +5080,7 @@ function handleFiles(files) {
   });
   chain.then(function () {
     renderFiles();
+    renderOcrButton();
     /* fill the header the moment the text lands, rather than waiting for Analyze */
     if (extracted) autofillAfterUpload(); else save();
     var base = attachments.length + ' of ' + MAX_FILES + ' documents attached.';
@@ -5083,7 +5238,9 @@ function clearForm(silent) {
     .forEach(function (el) { el.value = ''; });
   document.getElementById('chart').value = '';
   attachments = [];
+  ocrPending = [];
   renderFiles();
+  if (typeof renderOcrButton === 'function') renderOcrButton();
   state.mission = null; state.intub = null; state.meds = null;
   state.results = {}; state.analyzed = false;
   state.langHits = []; state.riskHits = [];
