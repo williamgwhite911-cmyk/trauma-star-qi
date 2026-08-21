@@ -1188,6 +1188,35 @@ function cleanCrewName(cand) {
   }
   return keep.join(' ').replace(/[,;:]+$/, '').trim();
 }
+/* A signature block writes the crew as "BOLIVAR, JORGE" in one column and
+   "Registered Nurse (Florida)" in another. Surname-comma-first is not the
+   "Name, RN" shape the narrative patterns look for, and the credential is not
+   adjacent to the name, so both were being missed on every ePCR export. */
+function fillCrewFromSignatureBlock(text, fieldId, roleRx, roster, suffix, label) {
+  var el = document.getElementById(fieldId);
+  if (!el || el.value.trim()) return null;
+  var rx = new RegExp(
+    "([A-Z][A-Za-z'’-]{1,22})\\s*,\\s*([A-Z][A-Za-z'’-]{1,22})[^\\n]{0,90}?(?:" + roleRx.source + ")",
+    'g');
+  var m, guard = 0, fallback = null;
+  while ((m = rx.exec(text)) && guard++ < 60) {
+    if (m.index === rx.lastIndex) rx.lastIndex++;
+    var last = m[1], first = m[2];
+    if (CREW_LABEL_WORD.test(last) || CREW_LABEL_WORD.test(first)) continue;
+    if (last.length < 3 || first.length < 2) continue;   /* ED, ER, OR are departments */
+    if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
+    var full = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() + ' ' +
+               last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
+    var hit = rosterMatch(full, roster);
+    if (hit) { setFieldValue(el, hit + ', ' + suffix); return label; }
+    if (!fallback) fallback = full;
+  }
+  if (fallback) {
+    setFieldValue(el, fallback + ', ' + suffix);
+    return label + ' (' + fallback + ' — not on the roster, confirm)';
+  }
+  return null;
+}
 function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
   var el = document.getElementById(fieldId);
   if (!el || el.value.trim()) return null;
@@ -1294,9 +1323,13 @@ function autofillFromChart(text) {
      sending physician, the ground crew — and writing one of those into the
      dropdown both picks the wrong person and permanently adds a stranger to the
      pick list. Only a name that matches somebody on the roster is filled in. */
-  var crewRn = fillCrewFromRoster(text, 'f_rn', /\bRN\b|\bR\.N\.\b|\bCFRN\b|\bAPRN\b|[Nn]urse/i, QI_RNS, 'RN', 'nurse');
+  var RN_ROLE = /[Rr]egistered\s+[Nn]urse|\bRN\b|\bR\.N\.\b|\bCFRN\b|\bAPRN\b|[Nn]urse/;
+  var MEDIC_ROLE = /EMT-?\s?[Pp]aramedic|\b[Pp]aramedic\b|\bEMT-?[Pp]\b|\bNRP\b|\bFP-?C\b|\bCCP-?C\b|\b[Mm]edic\b/;
+  var crewRn = fillCrewFromSignatureBlock(text, 'f_rn', RN_ROLE, QI_RNS, 'RN', 'nurse')
+            || fillCrewFromRoster(text, 'f_rn', /\bRN\b|\bR\.N\.\b|\bCFRN\b|\bAPRN\b|[Nn]urse/i, QI_RNS, 'RN', 'nurse');
   if (crewRn) filled.push(crewRn);
-  var crewMedic = fillCrewFromRoster(text, 'f_medic', /\b[Pp]aramedic\b|\bEMT-?[Pp]\b|\bNRP\b|\bFP-?C\b|\bCCP-?C\b|\b[Mm]edic\b/i, QI_MEDICS, 'Paramedic', 'medic');
+  var crewMedic = fillCrewFromSignatureBlock(text, 'f_medic', MEDIC_ROLE, QI_MEDICS, 'Paramedic', 'medic')
+               || fillCrewFromRoster(text, 'f_medic', /\b[Pp]aramedic\b|\bEMT-?[Pp]\b|\bNRP\b|\bFP-?C\b|\bCCP-?C\b|\b[Mm]edic\b/i, QI_MEDICS, 'Paramedic', 'medic');
   if (crewMedic) filled.push(crewMedic);
   var PLACE = "([A-Z][\\w'’-]*(?:\\s[A-Z0-9][\\w'’-]*){0,4})";
   m = new RegExp('from\\s+' + PLACE + '\\s+to\\s+' + PLACE).exec(text);
@@ -2834,6 +2867,38 @@ var CONTROLLED_MEDS = [
   { name: 'Phenobarbital',  sched: 'IV',  rx: /\bphenobarbital\b|\bluminal\b/i },
   { name: 'Tramadol',       sched: 'IV',  rx: /\btramadol\b|\bultram\b/i }
 ];
+/* Vial strengths carried on the aircraft. Knowing what is in the vial turns a
+   waste entry from a box to tick into arithmetic that either reconciles or does
+   not: vial minus dose given is what must be wasted and witnessed. */
+var NARC_VIALS = {
+  'Fentanyl':      { amount: 100, unit: 'mcg', label: 'fentanyl 100 mcg vial' },
+  'Ketamine':      { amount: 500, unit: 'mg',  label: 'ketamine 500 mg vial' },
+  'Midazolam':     { amount: 10,  unit: 'mg',  label: 'midazolam (Versed) 10 mg vial' },
+  'Hydromorphone': { amount: 1,   unit: 'mg',  label: 'hydromorphone (Dilaudid) 1 mg vial' }
+};
+function unitMatch(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
+/* the dose actually given, and the amount the chart says was wasted */
+function narcAmounts(win, unit) {
+  var out = { given: null, wasted: null };
+  var doseRx = new RegExp('(\\d+(?:\\.\\d+)?)\\s*' + unit + '\\b', 'gi'), m;
+  var doses = [];
+  while ((m = doseRx.exec(win))) {
+    var before = win.slice(Math.max(0, m.index - 40), m.index);
+    var after = win.slice(m.index + m[0].length, m.index + m[0].length + 32);
+    /* charts write it both ways: "wasted 50 mcg" and "50 mcg wasted" */
+    if (/wast|discard|remain|left\s+in|vial\s+cont/i.test(before) ||
+        /^\s*(?:was\s+|were\s+)?(?:wast|discard|remain)/i.test(after)) {
+      out.wasted = parseFloat(m[1]);
+      continue;
+    }
+    doses.push(parseFloat(m[1]));
+  }
+  var afterRx = new RegExp('wast\\w*[^.\\n]{0,40}?(\\d+(?:\\.\\d+)?)\\s*' + unit + '\\b', 'i');
+  var wm = afterRx.exec(win);
+  if (out.wasted === null && wm) out.wasted = parseFloat(wm[1]);
+  if (doses.length) out.given = doses[0];
+  return out;
+}
 var NARC_RX = {
   time:    /\b(?:at|@|time)\s*\.?\s*([01]?\d|2[0-3]):?[0-5]\d\b|\b([01]\d|2[0-3])[0-5]\d\s*(?:hrs?|hours)?\b/i,
   waste:   /\bwast(?:e|ed|age|ing)\b|\bdiscard(?:ed|ing)?\b|\bno\s+waste\b|\bnone\s+wasted\b|\bentire\s+(?:dose|vial|amount)\s+(?:given|administered)\b|\bfull\s+(?:dose|vial)\s+(?:given|administered)\b|\bremaining\s+\d+\s*(?:mcg|mg|m[lL])\b/i,
@@ -2871,6 +2936,44 @@ function assessNarcotics(text) {
       witness: NARC_RX.witness.test(t),
       log: NARC_RX.log.test(t)
     };
+    /* reconcile the vial */
+    var vial = NARC_VIALS[d.name];
+    item.vial = vial || null;
+    item.recon = null;
+    if (vial) {
+      var amt = narcAmounts(wide, vial.unit);
+      item.givenAmt = amt.given;
+      item.wastedAmt = amt.wasted;
+      if (amt.given !== null) {
+        var vials = Math.ceil(amt.given / vial.amount);
+        var drawn = vials * vial.amount;
+        var expected = Math.round((drawn - amt.given) * 1000) / 1000;
+        item.expectedWaste = expected;
+        item.vialsDrawn = vials;
+        if (expected === 0) {
+          item.recon = { ok: amt.wasted === null || amt.wasted === 0,
+            text: 'Dose given equals the full ' + vial.label + (vials > 1 ? ' x' + vials : '') +
+                  ', so nothing should have been wasted. The chart still has to say so.' };
+        } else if (amt.wasted === null) {
+          item.recon = { ok: false,
+            text: 'A ' + vial.label + ' holds ' + vial.amount + ' ' + vial.unit + (vials > 1 ? ' and ' + vials + ' were drawn' : '') +
+                  '. With ' + amt.given + ' ' + vial.unit + ' given, ' + expected + ' ' + vial.unit +
+                  ' is unaccounted for. No wasted amount appears in the chart.' };
+        } else if (Math.abs(amt.wasted - expected) > 0.001) {
+          item.recon = { ok: false,
+            text: '' + amt.given + ' ' + vial.unit + ' given from a ' + vial.amount + ' ' + vial.unit +
+                  ' vial' + (vials > 1 ? ' x' + vials : '') + ' leaves ' + expected + ' ' + vial.unit +
+                  ' to waste, but the chart records ' + amt.wasted + ' ' + vial.unit + ' wasted.' };
+        } else {
+          item.recon = { ok: true,
+            text: amt.given + ' ' + vial.unit + ' given and ' + amt.wasted + ' ' + vial.unit +
+                  ' wasted accounts for the full ' + vial.amount + ' ' + vial.unit + ' vial' + (vials > 1 ? ' x' + vials : '') + '.' };
+        }
+      } else {
+        item.recon = { ok: false,
+          text: 'No dose could be read, so the ' + vial.label + ' cannot be reconciled. Chart the amount given and the amount wasted.' };
+      }
+    }
     item.gaps = [];
     if (!item.dose) item.gaps.push('the dose');
     if (!item.route) item.gaps.push('the route');
@@ -2879,6 +2982,7 @@ function assessNarcotics(text) {
     if (!item.reassess) item.gaps.push('the reassessment after the dose');
     if (!item.respMon) item.gaps.push('respiratory monitoring around the dose');
     if (!item.waste) item.gaps.push('the waste, or a statement that none was wasted');
+    if (item.recon && !item.recon.ok) item.gaps.push('an amount that reconciles against the vial');
     if (!item.witness) item.gaps.push('the witness to the waste, by name');
     if (!item.log) item.gaps.push('the controlled-substance record, count, or kit seal');
     out.items.push(item);
@@ -2921,6 +3025,10 @@ function renderNarcotics() {
           gapMark(it.respMon, 'respiratory monitoring') +
           gapMark(it.waste, 'waste') + gapMark(it.witness, 'witness') + gapMark(it.log, 'CS record / seal') +
         '</div>' +
+        (it.recon
+          ? '<div style="font-size:12px;margin-top:4px;color:' + (it.recon.ok ? 'var(--green)' : 'var(--red)') + '"><b>' +
+            (it.recon.ok ? '✓ Vial reconciles: ' : '✗ Vial does not reconcile: ') + '</b>' + esc(it.recon.text) + '</div>'
+          : '') +
         (it.gaps.length
           ? '<div class="fix"><b>Not on the record:</b> ' + esc(it.gaps.join('; ')) + '.</div>'
           : '') +
@@ -4658,6 +4766,66 @@ function pdfItemsToLines(tc) {
    This renders each image page and runs optical character recognition on it.
    It is slow, so it is a button rather than something that happens on upload. */
 var ocrPending = [];      /* [{ file, name, pages: [n, ...] }] */
+
+/* ---- Reading an incident-times table off a scanned page ----
+   Recognition returns each word with its position, so a value can be tied to
+   the label printed on the same row of the form rather than guessed at by
+   order. Only words immediately to the left of the value are considered, which
+   keeps the neighbouring column out of it. */
+var OCR_TIME_ROWS = [
+  { field: 'f_tdisp',  rx: /dispatched|unitdispatched|toned/ },
+  { field: 'f_tlift',  rx: /enroute|nroute|responding/ },
+  { field: 'f_tland',  rx: /onscene|nscene|arrivedscene/ },
+  { field: 'f_tpt',    rx: /atpat|atpationt|patientcontacttime/ },
+  { field: 'f_tdep',   rx: /departscene|leftscene|departure/ },
+  { field: 'f_tarr',   rx: /atdestination|destinationarrival|arriveddestination|atlandingarea|landingarea/ },
+  { field: 'f_ttoc',   rx: /pttransferred|patienttransferred|caretransferred|transferofcare/ },
+  { field: 'f_tclear', rx: /callclosed|backinservice|inservice|available/ }
+];
+function normLabel(t) { return String(t || '').toLowerCase().replace(/[^a-z]/g, ''); }
+/* No single segmentation mode reads this table well: the one that recovers the
+   digits loses half the row labels, and the one that recovers the labels
+   garbles the digits. Running both and matching each value to whichever pass
+   managed to read its label gets most of the table. */
+function ocrTimesFromWords(valueWords, labelSets) {
+  if (!valueWords || !valueWords.length) return [];
+  var mid = function (b) { return (b.y0 + b.y1) / 2; };
+  var values = valueWords.filter(function (x) { return /^\d{1,2}:\d{2}(:\d{2})?$/.test(x.text); });
+  var sources = [valueWords].concat(labelSets || []);
+  var filled = [];
+  values.forEach(function (v) {
+    var y = mid(v.bbox);
+    /* the label sits on the same line and to the left; reaching further would
+       drag in whatever the next column over happens to say */
+    var label = '';
+    for (var si = 0; si < sources.length && !label; si++) {
+      var rowWords = sources[si].filter(function (x) {
+        return x !== v &&
+               Math.abs(mid(x.bbox) - y) < (v.bbox.y1 - v.bbox.y0) * 1.2 &&
+               x.bbox.x1 <= v.bbox.x0 + 20 &&
+               (v.bbox.x0 - x.bbox.x1) < 760;
+      }).sort(function (a, b) { return a.bbox.x0 - b.bbox.x0; });
+      if (!rowWords.length) continue;
+      var cand = normLabel(rowWords.map(function (x) { return x.text; }).join(''));
+      for (var ri = 0; ri < OCR_TIME_ROWS.length; ri++) {
+        if (OCR_TIME_ROWS[ri].rx.test(cand)) { label = cand; break; }
+      }
+    }
+    if (!label) return;
+    for (var i = 0; i < OCR_TIME_ROWS.length; i++) {
+      var row = OCR_TIME_ROWS[i];
+      if (!row.rx.test(label)) continue;
+      var el = document.getElementById(row.field);
+      if (!el || el.value.trim()) break;
+      var hm = /(\d{1,2}):(\d{2})/.exec(v.text);
+      if (!hm) break;
+      setFieldValue(el, ('0' + hm[1]).slice(-2) + hm[2]);
+      filled.push(row.field.replace('f_t', '') + ' ' + hm[1] + ':' + hm[2]);
+      break;
+    }
+  });
+  return filled;
+}
 var tesseractReady = null;
 function loadTesseract() {
   if (window.Tesseract) return Promise.resolve();
@@ -4693,7 +4861,7 @@ function runOcr() {
   var btn = document.getElementById('ocrbtn');
   btn.disabled = true; btn.style.opacity = '0.6';
   ocrStatus('Loading the text recognition engine…');
-  var done = 0;
+  var done = 0, ocrTimesFilled = [];
   var total = ocrPending.reduce(function (n, x) { return n + x.pages.length; }, 0);
   var worker = null;
   loadTesseract()
@@ -4726,7 +4894,23 @@ function runOcr() {
                     return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise
                       .then(function () { return worker.recognize(canvas); })
                       .then(function (res) {
+                        var vWords = (res.data && res.data.words) || [];
+                        var timeCount = vWords.filter(function (x) { return /^\d{1,2}:\d{2}:\d{2}$/.test(x.text); }).length;
+                        /* a page carrying several clock times is probably the
+                           incident-times table; give it the second pass */
+                        if (timeCount < 3) return { res: res, labels: [] };
+                        ocrStatus('Reading the times table on page ' + pageNum + ' …');
+                        return worker.setParameters({ tessedit_pageseg_mode: '6' })
+                          .then(function () { return worker.recognize(canvas); })
+                          .then(function (r2) { return worker.setParameters({ tessedit_pageseg_mode: '4' }).then(function () { return r2; }); })
+                          .then(function (r2) { return { res: res, labels: [(r2.data && r2.data.words) || []] }; })
+                          .catch(function () { return { res: res, labels: [] }; });
+                      })
+                      .then(function (bundle) {
+                        var res = bundle.res;
                         var txt = ((res.data && res.data.text) || '').trim();
+                        var got = ocrTimesFromWords((res.data && res.data.words) || [], bundle.labels);
+                        if (got.length) ocrTimesFilled = ocrTimesFilled.concat(got);
                         done++;
                         if (txt) {
                           var ta = document.getElementById('chart');
@@ -4748,7 +4932,11 @@ function runOcr() {
       ocrPending = [];
       renderOcrButton();
       autofillAfterUpload();
-      ocrStatus('<b>Read ' + done + ' page(s).</b> The text is in the chart box and the header has been filled in from it. OCR misreads characters — check every field it filled, especially times and doses, against the chart.', 'ok');
+      ocrStatus('<b>Read ' + done + ' page(s).</b> ' +
+        (ocrTimesFilled.length
+          ? 'Mission times read off the incident-times table: <b>' + esc(ocrTimesFilled.join(', ')) + '</b>. '
+          : 'No incident-times table could be matched. ') +
+        'The text is in the chart box and the header has been filled in from it. Recognition misreads digits, a zero for a six most often, so check every time and dose against the page before you rely on the score.', 'ok');
     })
     .catch(function (err) {
       if (worker) { try { worker.terminate(); } catch (e) {} }
@@ -5802,6 +5990,7 @@ function aiContextBlock() {
         ', witness ' + (x.witness ? 'yes' : 'NOT FOUND') + ', CS record ' + (x.log ? 'yes' : 'NOT FOUND'));
     });
   }
+  L.push('CONTROLLED SUBSTANCE VIAL STRENGTHS CARRIED ON THIS AIRCRAFT: fentanyl 100 mcg, ketamine 500 mg, midazolam (Versed) 10 mg, hydromorphone (Dilaudid) 1 mg. Vial strength minus the dose given is the amount that must be documented as wasted and witnessed. Check that arithmetic on every controlled substance the crew gave and report any amount that does not reconcile as a critical discrepancy.');
   if (state.signature) {
     L.push('SIGNATURE AND AUTHORIZATION (rule-based first pass): ' + state.signature.status +
       ' - ' + state.signature.headline + ' ' + state.signature.detail);
