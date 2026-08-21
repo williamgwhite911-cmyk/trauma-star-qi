@@ -285,50 +285,12 @@ button.primary:hover { filter: brightness(1.07); }
         </div>
         <div class="row2">
           <div><label>Flight Nurse</label>
-            <select id="f_rn">
-              <option value="">— Select —</option>
-              <option value="Megan Marlow, RN">Megan Marlow</option>
-              <option value="Roy Mendez, RN">Roy Mendez</option>
-              <option value="Yanet Leal-Concepcion, RN">Yanet Leal-Concepcion</option>
-              <option value="Shaun Tome, RN">Shaun Tome</option>
-              <option value="Angus Porter, RN">Angus Porter</option>
-              <option value="Jorge Bolivar, RN">Jorge Bolivar</option>
-              <option value="William White, RN">William White</option>
-              <option value="Jeff Lauraitis, RN">Jeff Lauraitis</option>
-              <option value="Obed Bello, RN">Obed Bello</option>
-              <option value="Marlon Proenza, RN">Marlon Proenza</option>
-              <option value="Jessica Medlin, RN">Jessica Medlin</option>
-            </select>
-          </div>
-          <div><label>Flight Paramedic</label>
-            <select id="f_medic">
-              <option value="">— Select —</option>
-              <option value="Richard Vandervoort, Paramedic">Richard Vandervoort</option>
-              <option value="Antonio Perez, Paramedic">Antonio Perez</option>
-              <option value="Harold Perez, Paramedic">Harold Perez</option>
-              <option value="Damian Suarez, Paramedic">Damian Suarez</option>
-              <option value="Michael Lopez, Paramedic">Michael Lopez</option>
-              <option value="Adrian Saez, Paramedic">Adrian Saez</option>
-              <option value="Kaitlyn Foster, Paramedic">Kaitlyn Foster</option>
-              <option value="Xavier Simancas, Paramedic">Xavier Simancas</option>
-              <option value="Fernando Duran, Paramedic">Fernando Duran</option>
-              <option value="Jesse Hubman, Paramedic">Jesse Hubman</option>
-              <option value="Joshua Carmichael, Paramedic">Joshua Carmichael</option>
-              <option value="Matthew Hill, Paramedic">Matthew Hill</option>
-              <option value="Liz Komoroski, Paramedic">Liz Komoroski</option>
-              <option value="Jesus Hernandez Lopez, Paramedic">Jesus Hernandez Lopez</option>
-              <option value="Sergio Sanchez, Paramedic">Sergio Sanchez</option>
-              <option value="Gavin Mock, Paramedic">Gavin Mock</option>
-              <option value="Aaron Sparber, Paramedic">Aaron Sparber</option>
-              <option value="Wyatt Carson, Paramedic">Wyatt Carson</option>
-              <option value="Alfredo Montes, Paramedic">Alfredo Montes</option>
-              <option value="Michael Bernard, Paramedic">Michael Bernard</option>
-              <option value="Morgan Anderson, Paramedic">Morgan Anderson</option>
-            </select>
-          </div>
-        </div>
+            <input type="text" id="f_rn" list="rnList" placeholder="Type to search, or enter any name" autocomplete="off">
+          </div>         <div><label>Flight Paramedic</label>
+            <input type="text" id="f_medic" list="medicList" placeholder="Type to search, or enter any name" autocomplete="off">
+          </div>       </div>
         <div class="row2">
-          <div><label>Pilot</label><input type="text" id="f_pilot" placeholder="Name, Pilot in Command"></div>
+          <div><label>Pilot</label><input type="text" id="f_pilot" list="pilotList" placeholder="Name, Pilot in Command" autocomplete="off"></div>
           <div></div>
         </div>
         <div class="row2">
@@ -440,6 +402,9 @@ button.primary:hover { filter: brightness(1.07); }
             <input type="text" id="f_icd2" list="icdlist" placeholder="e.g., J96.01, R57.0">
           </div>
         </div>
+        <datalist id="rnList"></datalist>
+        <datalist id="medicList"></datalist>
+        <datalist id="pilotList"></datalist>
         <datalist id="icdlist"></datalist>
         <datalist id="ccList"></datalist>
         <datalist id="dx10list"></datalist>
@@ -1208,11 +1173,11 @@ function fillCrewFromSignatureBlock(text, fieldId, roleRx, roster, suffix, label
     var full = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() + ' ' +
                last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
     var hit = rosterMatch(full, roster);
-    if (hit) { setFieldValue(el, hit + ', ' + suffix); return label; }
+    if (hit) { setFieldValue(el, hit); return label; }
     if (!fallback) fallback = full;
   }
   if (fallback) {
-    setFieldValue(el, fallback + ', ' + suffix);
+    setFieldValue(el, fallback);
     return label + ' (' + fallback + ' — not on the roster, confirm)';
   }
   return null;
@@ -1236,14 +1201,14 @@ function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
       /* who introduced this name? */
       if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
       var hit = rosterMatch(cand, roster);
-      if (hit) { setFieldValue(el, hit + ', ' + suffix); return label; }
+      if (hit) { setFieldValue(el, hit); return label; }
       if (!fallback) fallback = cand;
     }
   }
   /* a crew name the roster does not know still belongs in the field — the
      reviewer needs to see it, flagged, rather than find the box empty */
   if (fallback) {
-    setFieldValue(el, fallback + ', ' + suffix);
+    setFieldValue(el, fallback);
     return label + ' (' + fallback + ' — not on the roster, confirm)';
   }
   return null;
@@ -5319,6 +5284,7 @@ function saveToLog() {
   setLog(log);
   renderLog();
   renderFlightLog();
+  buildCrewDatalists();
   /* a Trauma Star flight with a webhook configured goes to the sheet as soon as
      it is saved; anything else stays local until the reviewer sends it */
   if (isTraumaStar(f.aircraft)) sendFlightLog(true);
@@ -5594,23 +5560,58 @@ function testHook() {
 var APPS_SCRIPT_SOURCE = [
   '/**',
   ' * Trauma Star QI Report - Google Sheets endpoint',
-  ' * Writes two tabs: "Flight Log" and "QI Review". Rows are keyed by OCA number,',
-  ' * so re-sending a corrected review replaces its row instead of duplicating it.',
+  ' *',
+  ' * Receives posts from the Trauma Star Documentation QI app and writes them to',
+  ' * the spreadsheet this script is bound to. Three tabs are used:',
+  ' *',
+  ' *   "Flight Log"  - one row per Trauma Star North / South flight: OCA, date,',
+  ' *                   nurse, medic, pilot, the dispatch-to-depart clock, sending',
+  ' *                   and receiving hospital, diagnosis, and each crew member\'s',
+  ' *                   running flight number.',
+  ' *   "QI Review"   - the full documentation audit row for the same call.',
+  ' *   "Crew Summary" - rebuilt automatically: one row per crew member with their',
+  ' *                   flight count, roles flown, date range, and score range.',
+  ' *',
+  ' * Rows are keyed by OCA number: re-sending a call overwrites its row instead of',
+  ' * adding a duplicate, so a corrected review replaces the original.',
+  ' *',
+  ' * SETUP',
+  ' *  1. Open the Google Sheet named "Trauma Star QI Report".',
+  ' *  2. Extensions > Apps Script. Delete anything there and paste this file.',
+  ' *  3. Deploy > New deployment > type "Web app".',
+  ' *       Execute as: Me',
+  ' *       Who has access: Anyone',
+  ' *     (Anyone is required because the app posts from the browser with no login.',
+  ' *      The URL is the only credential - treat it like a password and do not',
+  ' *      publish it. No patient identifiers or chart text are ever sent.)',
+  ' *  4. Copy the /exec URL and paste it into the app under',
+  ' *     "Central QI Log - Apps Script URL".',
+  ' *',
+  ' * After changing this file, use Deploy > Manage deployments > edit > New',
+  ' * version, or the old code keeps running.',
   ' */',
+  '',
   'function doPost(e) {',
   '  try {',
   '    var body = JSON.parse(e.postData.contents);',
+  '    var tabName = body.sheet || \'QI Review\';',
+  '    var header = body.header || [];',
+  '    var rows = body.rows || [];',
+  '    var keyColumn = body.keyColumn || null;',
+  '',
   '    var ss = SpreadsheetApp.getActiveSpreadsheet();',
-  '    if (body.action === "ping") {',
+  '',
+  '    // The app\'s "Test Connection" button sends this. It proves the deployment',
+  '    // is reachable and correctly configured without writing a junk row.',
+  '    if (body.action === \'ping\') {',
   '      return ContentService',
   '        .createTextOutput(JSON.stringify({ ok: true, ping: true, spreadsheet: ss.getName() }))',
   '        .setMimeType(ContentService.MimeType.JSON);',
   '    }',
-  '    var tabName = body.sheet || "QI Review";',
-  '    var header = body.header || [];',
-  '    var rows = body.rows || [];',
-  '    var keyColumn = body.keyColumn || null;',
+  '',
   '    var sh = ss.getSheetByName(tabName) || ss.insertSheet(tabName);',
+  '',
+  '    // Write or refresh the header row, widening the sheet if columns were added.',
   '    if (header.length) {',
   '      if (sh.getMaxColumns() < header.length) {',
   '        sh.insertColumnsAfter(sh.getMaxColumns(), header.length - sh.getMaxColumns());',
@@ -5618,27 +5619,32 @@ var APPS_SCRIPT_SOURCE = [
   '      var current = sh.getLastRow() > 0',
   '        ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]',
   '        : [];',
-  '      if (current.join("") !== header.join("")) {',
+  '      if (current.join(\'\') !== header.join(\'\')) {',
   '        sh.getRange(1, 1, 1, header.length).setValues([header]);',
   '        sh.getRange(1, 1, 1, header.length)',
-  '          .setFontWeight("bold").setBackground("#1a3a5c").setFontColor("#ffffff");',
+  '          .setFontWeight(\'bold\')',
+  '          .setBackground(\'#1a3a5c\')',
+  '          .setFontColor(\'#ffffff\');',
   '        sh.setFrozenRows(1);',
   '      }',
   '    }',
+  '',
+  '    // Index existing rows by key so a resend updates in place.',
   '    var keyIdx = keyColumn ? header.indexOf(keyColumn) : -1;',
   '    var existing = {};',
   '    if (keyIdx >= 0 && sh.getLastRow() > 1) {',
   '      var keys = sh.getRange(2, keyIdx + 1, sh.getLastRow() - 1, 1).getValues();',
   '      for (var i = 0; i < keys.length; i++) {',
   '        var k = String(keys[i][0]).trim();',
-  '        if (k) existing[k] = i + 2;',
+  '        if (k) existing[k] = i + 2; // sheet row number',
   '      }',
   '    }',
+  '',
   '    var appended = 0, updated = 0;',
   '    for (var r = 0; r < rows.length; r++) {',
   '      var row = rows[r];',
-  '      while (row.length < header.length) row.push("");',
-  '      var key = keyIdx >= 0 ? String(row[keyIdx]).trim() : "";',
+  '      while (row.length < header.length) row.push(\'\');',
+  '      var key = keyIdx >= 0 ? String(row[keyIdx]).trim() : \'\';',
   '      if (key && existing[key]) {',
   '        sh.getRange(existing[key], 1, 1, row.length).setValues([row]);',
   '        updated++;',
@@ -5648,10 +5654,18 @@ var APPS_SCRIPT_SOURCE = [
   '        appended++;',
   '      }',
   '    }',
+  '',
   '    if (appended || updated) sh.autoResizeColumns(1, Math.min(header.length, 12));',
+  '',
+  '    // The Flight Log answers "what happened on this call". The Crew Summary',
+  '    // answers "how many calls has Jorge taken", which is the question actually',
+  '    // asked at review time. It is rebuilt from the log so it can never drift.',
+  '    if (tabName === \'Flight Log\') rebuildCrewSummary(ss, sh);',
+  '',
   '    return ContentService',
   '      .createTextOutput(JSON.stringify({ ok: true, sheet: tabName, appended: appended, updated: updated }))',
   '      .setMimeType(ContentService.MimeType.JSON);',
+  '',
   '  } catch (err) {',
   '    return ContentService',
   '      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))',
@@ -5660,7 +5674,71 @@ var APPS_SCRIPT_SOURCE = [
   '}',
   '',
   'function doGet() {',
-  '  return ContentService.createTextOutput("Trauma Star QI Report endpoint is running. Post JSON to this URL.");',
+  '  return ContentService.createTextOutput(\'Trauma Star QI Report endpoint is running. Post JSON to this URL.\');',
+  '}',
+  '',
+  '/**',
+  ' * Rebuilds the "Crew Summary" tab: one row per person, with their flight count.',
+  ' * A person is counted once per call, whatever seat they were in, so a nurse who',
+  ' * also flies as a medic on another program still totals correctly.',
+  ' */',
+  'function rebuildCrewSummary(ss, logSheet) {',
+  '  if (logSheet.getLastRow() < 2) return;',
+  '  var header = logSheet.getRange(1, 1, 1, logSheet.getLastColumn()).getValues()[0];',
+  '  var col = function (name) { return header.indexOf(name); };',
+  '  var iNurse = col(\'Flight Nurse\'), iMedic = col(\'Flight Paramedic\'), iPilot = col(\'Pilot\');',
+  '  var iDate = col(\'Flight Date\'), iScore = col(\'Documentation Score\'), iOca = col(\'OCA #\');',
+  '  if (iNurse < 0 && iMedic < 0 && iPilot < 0) return;',
+  '',
+  '  var rows = logSheet.getRange(2, 1, logSheet.getLastRow() - 1, logSheet.getLastColumn()).getValues();',
+  '  var people = {};',
+  '  function note(name, role, row) {',
+  '    name = String(name || \'\').trim();',
+  '    if (!name) return;',
+  '    var key = name.toLowerCase();',
+  '    if (!people[key]) people[key] = { name: name, roles: {}, flights: 0, first: \'\', last: \'\', scores: [], ocas: {} };',
+  '    var p = people[key];',
+  '    var oca = iOca >= 0 ? String(row[iOca]).trim() : \'\';',
+  '    if (oca && p.ocas[oca]) return;      // one call counts once per person',
+  '    if (oca) p.ocas[oca] = true;',
+  '    p.roles[role] = (p.roles[role] || 0) + 1;',
+  '    p.flights++;',
+  '    var d = iDate >= 0 ? String(row[iDate]).trim() : \'\';',
+  '    if (d) {',
+  '      if (!p.first || d < p.first) p.first = d;',
+  '      if (!p.last || d > p.last) p.last = d;',
+  '    }',
+  '    var sc = iScore >= 0 ? row[iScore] : \'\';',
+  '    if (sc !== \'\' && !isNaN(sc)) p.scores.push(Number(sc));',
+  '  }',
+  '  for (var r = 0; r < rows.length; r++) {',
+  '    if (iNurse >= 0) note(rows[r][iNurse], \'Flight Nurse\', rows[r]);',
+  '    if (iMedic >= 0) note(rows[r][iMedic], \'Flight Paramedic\', rows[r]);',
+  '    if (iPilot >= 0) note(rows[r][iPilot], \'Pilot\', rows[r]);',
+  '  }',
+  '',
+  '  var out = [];',
+  '  Object.keys(people).forEach(function (k) {',
+  '    var p = people[k];',
+  '    var roleList = Object.keys(p.roles).map(function (r) { return r + \' (\' + p.roles[r] + \')\'; }).join(\', \');',
+  '    var avg = p.scores.length',
+  '      ? Math.round(p.scores.reduce(function (a, b) { return a + b; }, 0) / p.scores.length)',
+  '      : \'\';',
+  '    out.push([p.name, roleList, p.flights, p.first, p.last, avg,',
+  '      p.scores.length ? Math.min.apply(null, p.scores) : \'\',',
+  '      p.scores.length ? Math.max.apply(null, p.scores) : \'\']);',
+  '  });',
+  '  out.sort(function (a, b) { return b[2] - a[2] || String(a[0]).localeCompare(String(b[0])); });',
+  '',
+  '  var head = [\'Crew Member\', \'Roles Flown\', \'Flights\', \'First Flight\', \'Last Flight\',',
+  '              \'Average Score\', \'Lowest Score\', \'Highest Score\'];',
+  '  var sh = ss.getSheetByName(\'Crew Summary\') || ss.insertSheet(\'Crew Summary\');',
+  '  sh.clear();',
+  '  sh.getRange(1, 1, 1, head.length).setValues([head])',
+  '    .setFontWeight(\'bold\').setBackground(\'#1a3a5c\').setFontColor(\'#ffffff\');',
+  '  sh.setFrozenRows(1);',
+  '  if (out.length) sh.getRange(2, 1, out.length, head.length).setValues(out);',
+  '  sh.autoResizeColumns(1, head.length);',
   '}'
 ].join('\n');
 
@@ -6397,6 +6475,32 @@ function crewRows(name) {
   rows.sort(function (a, b) { return (b.date || b.savedAt).localeCompare(a.date || a.savedAt); });
   return rows;
 }
+/* The crew fields are type-ahead inputs rather than fixed dropdowns: the roster
+   is a starting point, not a limit, and a name the roster does not know still
+   has to be enterable. The lists also learn from the saved log, so a per-diem
+   or a new hire only has to be typed once. */
+function buildCrewDatalists() {
+  var log = getLog();
+  var extraRn = {}, extraMedic = {}, pilots = {};
+  Object.keys(log).forEach(function (k) {
+    var f = log[k].f || {};
+    var rn = baseName(f.rn), md = baseName(f.medic), pl = (f.pilot || '').trim();
+    if (rn) extraRn[rn] = true;
+    if (md) extraMedic[md] = true;
+    if (pl) pilots[pl] = true;
+  });
+  function fill(id, roster, extras) {
+    var dl = document.getElementById(id);
+    if (!dl) return;
+    var seen = {}, names = [];
+    (roster || []).forEach(function (n) { if (!seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; names.push(n); } });
+    Object.keys(extras).sort().forEach(function (n) { if (!seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; names.push(n); } });
+    dl.innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+  }
+  fill('rnList', QI_RNS, extraRn);
+  fill('medicList', QI_MEDICS, extraMedic);
+  fill('pilotList', [], pilots);
+}
 function buildCrewSelect() {
   var sel = document.getElementById('crewQuery');
   if (!sel) return;
@@ -6656,6 +6760,7 @@ document.getElementById('allCsvBtn').addEventListener('click', function () {
      'Dispatch', 'Hospital Arrival', 'Dispatch to Hospital (min)', 'Documentation Score'], rows);
 });
 
+buildCrewDatalists();
 load();
 checkHeader();
 renderBilling();
