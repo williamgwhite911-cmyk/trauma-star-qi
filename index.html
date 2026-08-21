@@ -5718,7 +5718,7 @@ function logToCentralSheet() {
   var camtsApp = camtsIds.filter(function (c) { var r = state.results[c.id]; return r && !r.inapplicable && r.status !== 'na'; });
   var camtsOk = camtsApp.filter(function (c) { return state.results[c.id].status === 'pass'; }).length;
   var header = ['Logged At', 'Flight Date', 'OCA #', 'Aircraft', 'Call Type', 'Mission',
-    'Ventilated', 'Infusions', 'RN', 'Medic', 'Pilot', 'Reviewer', 'Score',
+    'Ventilated', 'Infusions', 'Crew', 'RN', 'Medic', 'Pilot', 'Reviewer', 'Score',
     'Items Passed', 'Items Failed', 'Needs Review', 'Failed Items', 'Denial-Language Hits', 'Risk Flags',
     'Patient Age', 'Patient Weight (kg)',
     'Dispatch', 'Wheels Up', 'Land', 'Patient Contact', 'Depart', 'Hospital Arrival', 'Transfer of Care', 'Back in Service',
@@ -5734,6 +5734,8 @@ function logToCentralSheet() {
   var row = [new Date().toLocaleString(), f.date, f.oca, f.aircraft, f.calltype,
     state.mission === 'scene' ? 'Scene' : 'IFT',
     state.intub === 'yes' ? 'Yes' : 'No', state.meds === 'yes' ? 'Yes' : 'No',
+    [baseName(f.rn) ? baseName(f.rn) + ' (RN)' : '', baseName(f.medic) ? baseName(f.medic) + ' (Medic)' : '',
+     (f.pilot || '').trim() ? f.pilot.trim() + ' (Pilot)' : ''].filter(Boolean).join(' · '),
     f.rn, f.medic, f.pilot, f.reviewer, s.score,
     s.pass, s.fail, s.review, failed, state.langHits.length, state.riskHits.length,
     f.age, f.weight,
@@ -6468,7 +6470,7 @@ function isTraumaStar(aircraft) {
   return FLIGHT_AIRCRAFT.some(function (x) { return x.toLowerCase() === a; });
 }
 var FLIGHT_HEADER = [
-  'OCA #', 'Flight Date', 'Aircraft', 'Flight Nurse', 'Flight Paramedic', 'Pilot',
+  'OCA #', 'Flight Date', 'Aircraft', 'Crew', 'Flight Nurse', 'Flight Paramedic', 'Pilot',
   'Dispatch', 'En Route (Wheels Up)', 'On Scene / At Facility', 'Depart Scene',
   'Dispatch to En Route (min)', 'En Route to On Scene (min)', 'On Scene to Depart (min)',
   'Dispatch to Depart Scene (min)', 'Dispatch to Receiving Hospital (min)',
@@ -6500,8 +6502,16 @@ function flightLogEntries() {
 function flightRowValues(r) {
   var f = r.f, d = r.d;
   var dx = f.dx || (f.icd ? f.icd.toUpperCase() + (icdDesc(f.icd.trim()) ? ' — ' + icdDesc(f.icd.trim()) : '') : '') || f.cc || '';
+  /* one cell holding the whole crew, so a row can be read or filtered without
+     stitching three columns together; the separate columns stay for the
+     per-person flight counts */
+  var crew = [];
+  if (baseName(f.rn)) crew.push(baseName(f.rn) + ' (RN)');
+  if (baseName(f.medic)) crew.push(baseName(f.medic) + ' (Medic)');
+  if ((f.pilot || '').trim()) crew.push(f.pilot.trim() + ' (Pilot)');
   return [
-    r.oca, f.date || '', f.aircraft || '', baseName(f.rn), baseName(f.medic), f.pilot || '',
+    r.oca, f.date || '', f.aircraft || '', crew.join(' · '),
+    baseName(f.rn), baseName(f.medic), f.pilot || '',
     f.tdisp || '', f.tlift || '', f.tland || '', f.tdep || '',
     minsOrBlank(f.tdisp, f.tlift), minsOrBlank(f.tlift, f.tland), minsOrBlank(f.tland, f.tdep),
     minsOrBlank(f.tdisp, f.tdep), minsOrBlank(f.tdisp, f.tarr),
