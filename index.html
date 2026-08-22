@@ -1160,25 +1160,35 @@ function cleanCrewName(cand) {
 function fillCrewFromSignatureBlock(text, fieldId, roleRx, roster, suffix, label) {
   var el = document.getElementById(fieldId);
   if (!el || el.value.trim()) return null;
-  var rx = new RegExp(
-    "([A-Z][A-Za-z'’-]{1,22})\\s*,\\s*([A-Z][A-Za-z'’-]{1,22})[^\\n]{0,90}?(?:" + roleRx.source + ")",
-    'g');
-  var m, guard = 0, fallback = null;
-  while ((m = rx.exec(text)) && guard++ < 60) {
-    if (m.index === rx.lastIndex) rx.lastIndex++;
-    var last = m[1], first = m[2];
-    if (CREW_LABEL_WORD.test(last) || CREW_LABEL_WORD.test(first)) continue;
-    if (last.length < 3 || first.length < 2) continue;   /* ED, ER, OR are departments */
-    if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
-    var full = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() + ' ' +
-               last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
-    var hit = rosterMatch(full, roster);
-    if (hit) { setFieldValue(el, hit); return label; }
-    if (!fallback) fallback = full;
-  }
-  if (fallback) {
-    setFieldValue(el, fallback);
-    return label + ' (' + fallback + ' — not on the roster, confirm)';
+  /* Two passes. The first needs the credential on the same line as the name and
+     is safe enough to accept a name the roster does not know. The second lets
+     them sit on different lines, because recognition splits a signature block
+     into separate columns - but there the name must match the roster, or a
+     driver, a receiving nurse, or the patient could be picked up instead. */
+  var NAME_COMMA = "([A-Z][A-Za-z'’-]{1,22})\\s*,\\s*([A-Z][A-Za-z'’-]{1,22})";
+  var passes = [
+    { rx: new RegExp(NAME_COMMA + "[^\\n]{0,90}?(?:" + roleRx.source + ")", 'g'), rosterOnly: false },
+    { rx: new RegExp(NAME_COMMA + "[\\s\\S]{0,220}?(?:" + roleRx.source + ")", 'g'), rosterOnly: true }
+  ];
+  for (var pi = 0; pi < passes.length; pi++) {
+    var rx = passes[pi].rx, rosterOnly = passes[pi].rosterOnly;
+    var m, guard = 0, fallback = null;
+    while ((m = rx.exec(text)) && guard++ < 80) {
+      if (m.index === rx.lastIndex) rx.lastIndex++;
+      var last = m[1], first = m[2];
+      if (CREW_LABEL_WORD.test(last) || CREW_LABEL_WORD.test(first)) continue;
+      if (last.length < 3 || first.length < 3) continue;   /* ED, ER, OR are departments */
+      if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
+      var full = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() + ' ' +
+                 last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
+      var hit = rosterMatch(full, roster);
+      if (hit) { setFieldValue(el, hit); return label; }
+      if (!rosterOnly && !fallback) fallback = full;
+    }
+    if (fallback) {
+      setFieldValue(el, fallback);
+      return label + ' (' + fallback + ' - not on the roster, confirm)';
+    }
   }
   return null;
 }
@@ -1197,7 +1207,8 @@ function fillCrewFromRoster(text, fieldId, roleRx, roster, suffix, label) {
     while ((m = rx.exec(text)) && guard++ < 60) {
       if (m.index === rx.lastIndex) rx.lastIndex++;
       var cand = cleanCrewName(m[1]);
-      if (!cand || CREW_NOT_A_NAME.test(cand.split(' ')[0])) continue;
+      if (!cand || cand.replace(/[^A-Za-z]/g, '').length < 4) continue;
+      if (CREW_NOT_A_NAME.test(cand.split(' ')[0])) continue;
       /* who introduced this name? */
       if (CREW_REJECT.test(text.slice(Math.max(0, m.index - 70), m.index))) continue;
       var hit = rosterMatch(cand, roster);
